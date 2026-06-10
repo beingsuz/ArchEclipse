@@ -280,6 +280,109 @@ bool get_wallpaper_for_workspace(const char* monitor, int workspace_id, char* wa
 }
 
 /*
+ * Read a value for an arbitrary key (e.g. "w-3", "global", "primary") from a
+ * monitor's defaults.conf. Returns true if the key line exists.
+ */
+bool get_config_value(const char* monitor, const char* key, char* out, size_t size) {
+    char config_path[MAX_PATH_LEN];
+    snprintf(config_path, sizeof(config_path),
+             "%s/wallpaper-daemon/config/%s/defaults.conf", hypr_dir, monitor);
+
+    FILE* fp = fopen(config_path, "r");
+    if (!fp) {
+        return false;
+    }
+
+    char key_eq[64];
+    snprintf(key_eq, sizeof(key_eq), "%s=", key);
+
+    char line[MAX_LINE_LEN];
+    bool found = false;
+    while (fgets(line, sizeof(line), fp)) {
+        line[strcspn(line, "\n")] = 0;
+        if (strncmp(line, key_eq, strlen(key_eq)) == 0) {
+            strncpy(out, line + strlen(key_eq), size - 1);
+            out[size - 1] = '\0';
+            found = true;
+            break;
+        }
+    }
+
+    fclose(fp);
+    return found;
+}
+
+/*
+ * Read a string setting from the AGS settings.json using jq, falling back to
+ * the given default when the file/key is missing.
+ */
+void read_setting(const char* jq_filter, const char* fallback, char* out, size_t n) {
+    const char* home = getenv("HOME");
+    if (!home) home = "";
+
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "jq -r '(%s) // \"%s\"' '%s/.config/ags/cache/settings/settings.json' 2>/dev/null",
+             jq_filter, fallback, home);
+
+    char* o = exec_command(cmd);
+    if (!o) {
+        strncpy(out, fallback, n - 1);
+        out[n - 1] = '\0';
+        return;
+    }
+
+    o[strcspn(o, "\n")] = 0;
+    if (o[0] == '\0' || strcmp(o, "null") == 0) {
+        strncpy(out, fallback, n - 1);
+    } else {
+        strncpy(out, o, n - 1);
+    }
+    out[n - 1] = '\0';
+}
+
+/*
+ * Resolve the wallpaper that should be shown for a monitor/workspace, honoring
+ * the configured mode (Global vs Per Workspace) and the primary fallback.
+ * Writes an empty string to out when nothing is configured.
+ */
+void resolve_wallpaper(const char* monitor, int workspace_id, char* out, size_t size) {
+    char mode[32];
+    read_setting(".wallpaper.mode.value", "workspace", mode, sizeof(mode));
+
+    out[0] = '\0';
+    bool got = false;
+
+    if (strcmp(mode, "global") == 0) {
+        if (get_config_value(monitor, "global", out, size) && out[0] != '\0') {
+            got = true;
+        }
+    } else {
+        char key[32];
+        snprintf(key, sizeof(key), "w-%d", workspace_id);
+        if (get_config_value(monitor, key, out, size) && out[0] != '\0') {
+            got = true;
+        }
+    }
+
+    if (!got) {
+        /* Primary fallback: explicit custom primary, else workspace 1. */
+        char src[32];
+        read_setting(".wallpaper.primarySource.value", "workspace1", src, sizeof(src));
+
+        if (strcmp(src, "custom") == 0 &&
+            get_config_value(monitor, "primary", out, size) && out[0] != '\0') {
+            got = true;
+        }
+        if (!got) {
+            if (!(get_config_value(monitor, "w-1", out, size) && out[0] != '\0')) {
+                out[0] = '\0';
+            }
+        }
+    }
+}
+
+/*
  * Get active workspace ID for a monitor
  * Parses JSON output from hyprctl monitors
  * Searches for monitor by name, then extracts activeWorkspace.id
@@ -430,6 +533,15 @@ bool is_hyprpaper_running() {
     return system("pgrep -x hyprpaper >/dev/null 2>&1") == 0;
 }
 
+/* Check if wallpaper is a Steam Wallpaper Engine item (its preview lives under
+ * the Workshop content folder and is rendered via linux-wallpaperengine) */
+bool is_wallpaperengine(const char* wallpaper) {
+    if (!wallpaper) {
+        return false;
+    }
+    return strstr(wallpaper, "/workshop/content/431960/") != NULL;
+}
+
 /* Check if wallpaper should be rendered via mpvpaper */
 bool is_media_wallpaper(const char* wallpaper) {
     if (!wallpaper) {
@@ -488,13 +600,14 @@ void change_wallpaper() {
         }
         
         char wallpaper[MAX_PATH_LEN];
-        if (!get_wallpaper_for_workspace(monitor, workspace_id, wallpaper, sizeof(wallpaper))) {
-            char error_msg[512];
-            snprintf(error_msg, sizeof(error_msg), "No wallpaper config for '%s' workspace %d", monitor, workspace_id);
-            notify_error("change_wallpaper", error_msg);
+        resolve_wallpaper(monitor, workspace_id, wallpaper, sizeof(wallpaper));
+        if (wallpaper[0] == '\0') {
+            /* Nothing configured and no primary fallback; leave current wallpaper. */
+            state->previous_workspace_id = workspace_id;
+            state->initialized = true;
             continue;
         }
-        
+
         /* Skip if wallpaper path unchanged (workspace switch but same wallpaper) */
         if (state->initialized && strcmp(wallpaper, state->current_wallpaper) == 0) {
             state->previous_workspace_id = workspace_id;
@@ -521,7 +634,9 @@ void change_wallpaper() {
         
         /* Execute wallpaper change script */
         char cmd[MAX_PATH_LEN * 2];
-        if (is_media_wallpaper(expanded_wallpaper)) {
+        if (is_wallpaperengine(expanded_wallpaper)) {
+            snprintf(cmd, sizeof(cmd), "%s/wallpaper-daemon/wallpaperengine.sh '%s' '%s' &", hypr_dir, monitor, expanded_wallpaper);
+        } else if (is_media_wallpaper(expanded_wallpaper)) {
             snprintf(cmd, sizeof(cmd), "%s/wallpaper-daemon/mpvpaper.sh '%s' '%s' &", hypr_dir, monitor, expanded_wallpaper);
         } else {
             snprintf(cmd, sizeof(cmd), "%s/wallpaper-daemon/hyprpaper.sh '%s' '%s' &", hypr_dir, monitor, expanded_wallpaper);
