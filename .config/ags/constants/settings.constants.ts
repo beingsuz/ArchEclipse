@@ -293,6 +293,15 @@ export const defaultSettings: Settings = {
       max: 240,
       tooltip: "Frame rate cap. Lower values save battery and GPU.",
     },
+    renderScale: {
+      name: "Render Scale (Quality)",
+      value: 1,
+      type: "float",
+      min: 0.5,
+      max: 2,
+      tooltip:
+        "Supersampling factor. >1 (e.g. 1.5, 2) antialiases and sharpens 3D/scene wallpapers at higher GPU cost; <1 renders faster. Applied on next wallpaper load.",
+    },
     volume: {
       name: "Volume",
       value: 15,

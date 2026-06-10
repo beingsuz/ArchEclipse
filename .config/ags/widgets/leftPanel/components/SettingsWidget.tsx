@@ -946,6 +946,11 @@ export default () => {
               callBack={(v) => controlWE(`set fps ${v}`)}
             />
             <Setting
+              keyChanged="wallpaperEngine.renderScale"
+              setting={globalSettings.peek().wallpaperEngine.renderScale}
+              callBack={() => restartWE()}
+            />
+            <Setting
               keyChanged="wallpaperEngine.volume"
               setting={globalSettings.peek().wallpaperEngine.volume}
               callBack={(v) => controlWE(`volume ${v}`)}

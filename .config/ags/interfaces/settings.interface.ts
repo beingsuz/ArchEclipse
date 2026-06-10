@@ -113,6 +113,7 @@ export interface Settings {
     scaling: AGSSetting;
     clamping: AGSSetting;
     fps: AGSSetting;
+    renderScale: AGSSetting;
     volume: AGSSetting;
     mute: AGSSetting;
     noAutomute: AGSSetting;

@@ -69,6 +69,7 @@ args=(--control-socket "$sock" --screen-root "$monitor" --bg "$dir")
 sc="$(we .wallpaperEngine.scaling.value)";  [ -n "$sc" ] && args+=(--scaling "$sc")
 cl="$(we .wallpaperEngine.clamping.value)"; [ -n "$cl" ] && args+=(--clamp "$cl")
 fp="$(we .wallpaperEngine.fps.value)";      [ -n "$fp" ] && args+=(--fps "$fp")
+rs="$(we .wallpaperEngine.renderScale.value)"; [ -n "$rs" ] && args+=(--render-scale "$rs")
 # Mute the wallpaper's own OUTPUT with volume 0, NOT --silent: --silent turns off
 # audio *capture* (audioprocessing) too, which kills sound-reactive wallpapers
 # (visualizers, reactive particles). Volume 0 silences output while reactivity
