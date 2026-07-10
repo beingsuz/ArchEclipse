@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""Install linux-wallpaperengine (the renderer behind the Wallpaper Engine integration).
+"""Install kirie — the prebuilt Rust Wallpaper Engine renderer behind the WE integration.
 
-The daemon (``~/.config/hypr/wallpaper-daemon/wallpaperengine.sh``) and the AGS selector
-depend on fork-only features (a live control socket, ``--render-scale`` supersampling and
-native 3D ``.mdl`` model rendering), so this builds from source rather than using the
-upstream AUR package. The binary is placed where the daemon looks for it:
+kirie (https://github.com/beingsuz/kirie) is a from-scratch Rust renderer that is drop-in
+compatible with linux-wallpaperengine's CLI and control socket, so the daemon
+(``~/.config/hypr/wallpaper-daemon/wallpaperengine.sh``) drives it unchanged. Unlike the old
+C++ fork this ships **prebuilt release binaries**, so there is nothing to compile — the install
+just downloads the right variant and unpacks it to::
 
-    ~/linux-wallpaperengine/build/output/linux-wallpaperengine
+    ~/kirie-bin/kirie          (+ a ~/.local/bin/kirie symlink for PATH)
 
-Source selection is asked at install time (no silent default). Environment variables
-override the prompt for non-interactive / scripted installs:
+Web wallpapers need a browser backend; there are two release variants:
 
-    WPE_LOCAL_REPO   path to an existing local checkout (built in place, symlinked into place)
-    WPE_REPO_URL     remote git URL to clone
-    WPE_REPO_REF     branch / tag / commit for WPE_REPO_URL (default: the repo's default branch)
-    WPE_FORCE=1      replace an existing ~/linux-wallpaperengine (backed up to .bak) without asking
-    WPE_SKIP=1       skip this step entirely
+    web-webview  — light; renders through the system ``webkit2gtk-4.1`` (a small package)
+    web-cef      — self-contained; bundles the Chromium Embedded Framework (a much bigger download)
 
-A build failure is reported as a warning and does NOT abort the rest of the installation.
+If webkit2gtk-4.1 is present we grab web-webview; otherwise the user is asked to either install
+webkit (then web-webview) or download the self-contained CEF build. Scene/video/image wallpapers
+render regardless of the choice.
+
+Environment overrides for non-interactive / scripted installs:
+
+    KIRIE_WEB=webview|cef|none   pick the web backend without prompting
+    KIRIE_FORCE=1               replace an existing ~/kirie-bin without asking
+    KIRIE_SKIP=1                skip this step entirely
+
+A failure is reported as a warning and does NOT abort the rest of the installation.
 """
 
 from __future__ import annotations
@@ -25,63 +32,38 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import tarfile
+import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parent.parent))
-    from components.utils import run_cmd, run_shell, fzf_select
+    from components.utils import run_cmd
     from components.presentation import print_step, print_success, print_warning
 else:
-    from .utils import run_cmd, run_shell, fzf_select
+    from .utils import run_cmd
     from .presentation import print_step, print_success, print_warning
 
-# The ArchEclipse Wallpaper Engine fork + the branch that carries the integration features.
-# Offered as a menu choice; never used unless the user explicitly picks it (or sets the env vars).
-FORK_URL = "https://github.com/beingsuz/linux-wallpaperengine.git"
-FORK_REF = "feat/better-wallpaper-support"
+REPO = "beingsuz/kirie"
+DEST = Path.home() / "kirie-bin"
+BIN_SYMLINK = Path.home() / ".local" / "bin" / "kirie"
 
-# Where the daemon expects the binary: ~/linux-wallpaperengine/build/output/linux-wallpaperengine
-DEST = Path.home() / "linux-wallpaperengine"
-
-# Arch build dependencies. CEF is downloaded automatically by CMake (CMakeModules/DownloadCEF.cmake),
-# so it is not listed here. base-devel covers make/gcc/etc.
-BUILD_DEPS: list[str] = [
-    "base-devel",
-    "cmake",
-    "git",
-    "pkgconf",
-    "glew",
-    "glfw",
-    "glm",
-    "freeglut",
-    "sdl2",
-    "lz4",
-    "zlib",
-    "ffmpeg",
-    "mpv",
-    "libpulse",
-    "freetype2",
-    "fftw",
-    "gmp",
-    "libx11",
-    "libxrandr",
-    "libxinerama",
-    "libxcursor",
-    "libxi",
-    "libxxf86vm",
-    "wayland",
-    "wayland-protocols",
-    "libglvnd",
-    "mesa",
-]
+# release asset -> the artifact (dir + binary) name inside the tarball
+ASSETS = {
+    "webview": "kirie-web-webview-linux-x86_64.tar.gz",
+    "cef": "kirie-web-cef-linux-x86_64.tar.gz",
+    "none": "kirie-linux-x86_64.tar.gz",
+}
+# webkit runtime the web-webview build links against
+WEBKIT_PKG = "webkit2gtk-4.1"
 
 
-# --------------------------------------------------------------------------- source selection
+# --------------------------------------------------------------------------- helpers
 
 def _env(name: str) -> Optional[str]:
-    value = os.environ.get(name)
-    value = value.strip() if value else ""
+    value = (os.environ.get(name) or "").strip()
     return value or None
 
 
@@ -89,164 +71,124 @@ def _truthy(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _choose_source() -> Optional[tuple[str, str, Optional[str]]]:
-    """Return (kind, location, ref) where kind is 'remote' or 'local', or None to skip.
+def _webkit_present() -> bool:
+    """True if the system webkit2gtk-4.1 runtime the web-webview build needs is installed."""
+    if run_cmd(["pkg-config", "--exists", WEBKIT_PKG], check=False).returncode == 0:
+        return True
+    # pkg-config may be absent even when the runtime lib is; check the shared object too.
+    probe = run_cmd(
+        ["sh", "-c", "ldconfig -p 2>/dev/null | grep -q 'libwebkit2gtk-4.1'"], check=False
+    )
+    return probe.returncode == 0
 
-    Precedence: WPE_SKIP -> WPE_LOCAL_REPO -> WPE_REPO_URL -> interactive prompt.
-    """
-    if _truthy("WPE_SKIP"):
-        print_warning("WPE_SKIP set — skipping Wallpaper Engine.")
+
+# --------------------------------------------------------------------------- variant selection
+
+def _choose_variant(aur_helper: str) -> Optional[str]:
+    """Return the web backend key ('webview' | 'cef' | 'none'), or None to skip."""
+    if _truthy("KIRIE_SKIP"):
+        print_warning("KIRIE_SKIP set — skipping the wallpaper renderer.")
         return None
 
-    local = _env("WPE_LOCAL_REPO")
-    if local:
-        return ("local", str(Path(local).expanduser()), None)
+    forced = (_env("KIRIE_WEB") or "").lower()
+    if forced in ASSETS:
+        return forced
 
-    url = _env("WPE_REPO_URL")
-    if url:
-        return ("remote", url, _env("WPE_REPO_REF"))
+    if _webkit_present():
+        print_success(f"{WEBKIT_PKG} found — using the light web-webview build.")
+        return "webview"
 
+    # webkit missing: install it (light) or fall back to the self-contained CEF build.
     if not sys.stdin.isatty():
         print_warning(
-            "No TTY and no WPE_* override set — skipping Wallpaper Engine. "
-            "Set WPE_REPO_URL or WPE_LOCAL_REPO to install non-interactively."
+            f"{WEBKIT_PKG} not found and no TTY — downloading the self-contained CEF build. "
+            "Set KIRIE_WEB=webview and install webkit2gtk-4.1 for the lighter one."
         )
-        return None
+        return "cef"
 
-    options = [
-        f"ArchEclipse fork  ({FORK_URL.split('://')[-1]} @ {FORK_REF})",
-        "Custom remote repository (enter a git URL)",
-        "Local repository (enter a path to an existing checkout)",
-        "Skip Wallpaper Engine",
-    ]
-    print("Choose where to get linux-wallpaperengine from:")
-    selection = fzf_select(options)
-    if not selection or selection.startswith("Skip"):
-        print_warning("No source selected — skipping Wallpaper Engine.")
-        return None
+    print(f"Web wallpapers need a browser backend, and {WEBKIT_PKG} is not installed.")
+    print(f"  1) Install {WEBKIT_PKG} (small) and use the light web-webview build  [recommended]")
+    print("  2) Download the self-contained CEF build (much bigger, no extra packages)")
+    print("  3) No web backend (scene / video / image wallpapers only)")
+    choice = input("  Choose [1/2/3, default 1]: ").strip() or "1"
 
-    if selection.startswith("ArchEclipse fork"):
-        return ("remote", FORK_URL, FORK_REF)
+    if choice == "2":
+        return "cef"
+    if choice == "3":
+        return "none"
 
-    if selection.startswith("Custom remote"):
-        url = input("  Git URL: ").strip()
-        if not url:
-            print_warning("No URL entered — skipping Wallpaper Engine.")
-            return None
-        ref = input("  Branch / tag / commit (leave blank for the default branch): ").strip()
-        return ("remote", url, ref or None)
-
-    # Local repository
-    path = input("  Path to the local checkout: ").strip()
-    if not path:
-        print_warning("No path entered — skipping Wallpaper Engine.")
-        return None
-    return ("local", str(Path(path).expanduser()), None)
+    print_step("*", f"Installing {WEBKIT_PKG}")
+    result = run_cmd([aur_helper, "-S", "--needed", WEBKIT_PKG], check=False)
+    if result.returncode != 0 or not _webkit_present():
+        print_warning(f"Could not install {WEBKIT_PKG} — falling back to the CEF build.")
+        return "cef"
+    return "webview"
 
 
-# --------------------------------------------------------------------------- dependencies
-
-def _unsatisfied(packages: list[str]) -> list[str]:
-    # `pacman -T` prints only deps not already satisfied, honoring `provides`: a drop-in such as
-    # zlib-ng-compat (provides zlib) or sdl2-compat (provides sdl2) counts as met and is dropped, so
-    # we never force a conflicting replacement that breaks lib32-* dependents. Groups pass through.
-    result = run_cmd(["pacman", "-T", *packages], check=False, capture_output=True)
-    return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
-
-
-def _install_build_deps(aur_helper: str) -> None:
-    print_step("*", "Installing build dependencies")
-    missing = _unsatisfied(BUILD_DEPS)
-    if not missing:
-        print_success("All build dependencies already satisfied.")
-        return
-    # Only install what's genuinely missing; feed on stdin so the helper resolves official + AUR.
-    run_cmd([aur_helper, "-S", "--needed", "-"], input_text="\n".join(missing))
-
-
-# --------------------------------------------------------------------------- source preparation
+# --------------------------------------------------------------------------- download + unpack
 
 def _confirm_overwrite() -> bool:
-    if _truthy("WPE_FORCE"):
+    if _truthy("KIRIE_FORCE"):
         return True
     if not sys.stdin.isatty():
-        return False
-    answer = input(
-        f"  {DEST} already exists. Replace it (a backup is kept as .bak)? [y/N]: "
-    ).strip().lower()
-    return answer.startswith("y")
+        return True  # non-interactive: a re-run should refresh the binary
+    answer = input(f"  {DEST} already exists. Replace it? [Y/n]: ").strip().lower()
+    return answer in ("", "y", "yes")
 
 
-def _backup_dest() -> None:
-    backup = DEST.with_name(DEST.name + ".bak")
-    if backup.is_symlink() or backup.exists():
-        if backup.is_dir() and not backup.is_symlink():
-            shutil.rmtree(backup)
-        else:
-            backup.unlink()
-    shutil.move(str(DEST), str(backup))
-    print_warning(f"Existing checkout moved to {backup}")
+def _download(asset: str) -> Path:
+    url = f"https://github.com/{REPO}/releases/latest/download/{asset}"
+    print_step("*", f"Downloading {asset}")
+    tmp = Path(tempfile.mkdtemp()) / asset
+    # prefer curl (progress + redirects) if present, else urllib
+    if shutil.which("curl"):
+        run_cmd(["curl", "-fL", "--progress-bar", "-o", str(tmp), url])
+    else:
+        urllib.request.urlretrieve(url, tmp)  # noqa: S310 — trusted github release URL
+    if not tmp.is_file() or tmp.stat().st_size == 0:
+        raise RuntimeError(f"download produced no file: {url}")
+    return tmp
 
 
-def _prepare_source(kind: str, location: str, ref: Optional[str]) -> Optional[Path]:
-    """Make sure the source tree exists at DEST and return its real build directory."""
-    if kind == "local":
-        src = Path(location)
-        if not (src / "CMakeLists.txt").is_file():
-            print_warning(f"'{src}' does not look like a linux-wallpaperengine checkout — skipping.")
-            return None
-        if src.resolve() == DEST.resolve():
-            return DEST
-        # Point ~/linux-wallpaperengine at the local checkout so the daemon finds the build.
-        if DEST.exists() or DEST.is_symlink():
-            if not _confirm_overwrite():
-                print_warning(f"Keeping existing {DEST}; building it instead of the local path.")
-                return DEST
-            _backup_dest()
-        DEST.symlink_to(src, target_is_directory=True)
-        print_success(f"Linked {DEST} -> {src}")
-        return src
+def _install_tarball(tarball: Path, asset: str) -> None:
+    """Unpack the release tarball into DEST, renaming the variant binary to `kirie`."""
+    artifact = asset[: -len("-linux-x86_64.tar.gz")]  # e.g. kirie-web-webview
 
-    # remote
-    if DEST.exists() or DEST.is_symlink():
+    if DEST.exists():
         if not _confirm_overwrite():
-            print_warning(f"{DEST} already exists — rebuilding it (source override ignored).")
-            return DEST
-        _backup_dest()
+            print_warning(f"Keeping existing {DEST}.")
+            return
+        shutil.rmtree(DEST)
+    DEST.mkdir(parents=True, exist_ok=True)
 
-    print_step("*", f"Cloning {location}" + (f" ({ref})" if ref else ""))
-    # --recurse-submodules: the engine vendors glslang/SPIRV-Cross/quickjs/kissfft/argparse as
-    # submodules under src/External; without them CMake's add_subdirectory aborts the configure.
-    clone = ["git", "clone", "--depth", "1", "--recurse-submodules"]
-    if ref:
-        # ref must be a branch or tag (shallow clone can't target an arbitrary commit).
-        clone += ["--branch", ref]
-    clone += [location, str(DEST)]
-    run_cmd(clone)
-    return DEST
+    extract_dir = Path(tempfile.mkdtemp())
+    with tarfile.open(tarball, "r:gz") as tar:
+        tar.extractall(extract_dir)  # noqa: S202 — trusted release artifact
 
+    inner = extract_dir / artifact
+    src_dir = inner if inner.is_dir() else extract_dir
+    for item in src_dir.iterdir():
+        # the main binary is named after the artifact; everything else (CEF helper, *.pak,
+        # *.bin, locales/) sits beside it and must land next to the binary.
+        target = DEST / ("kirie" if item.name == artifact else item.name)
+        if item.is_dir():
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
+    shutil.rmtree(extract_dir, ignore_errors=True)
 
-# --------------------------------------------------------------------------- build
-
-def _build(repo_dir: Path) -> None:
-    # Repair a checkout cloned without submodules (older installer, or a manual clone): fetch them
-    # before configuring so CMake finds the vendored deps under src/External. Idempotent.
-    if (repo_dir / ".gitmodules").is_file():
-        print_step("*", "Fetching git submodules")
-        run_cmd(["git", "-C", str(repo_dir), "submodule", "update", "--init", "--recursive"])
-
-    build_dir = repo_dir / "build"
-    build_dir.mkdir(parents=True, exist_ok=True)
-    print_step("*", "Configuring (CMake — this downloads CEF on first run)")
-    run_cmd(["cmake", "-DCMAKE_BUILD_TYPE=Release", ".."], cwd=build_dir)
-    print_step("*", "Compiling (this can take a while)")
-    jobs = str(os.cpu_count() or 1)
-    run_cmd(["cmake", "--build", ".", "-j", jobs], cwd=build_dir)
-
-    binary = build_dir / "output" / "linux-wallpaperengine"
+    binary = DEST / "kirie"
     if not binary.is_file():
-        raise RuntimeError(f"build finished but {binary} is missing")
-    print_success(f"Built {binary}")
+        raise RuntimeError(f"unpacked {asset} but {binary} is missing")
+    binary.chmod(0o755)
+
+    # PATH symlink so `command -v kirie` works (the daemon also looks at ~/kirie-bin/kirie directly)
+    BIN_SYMLINK.parent.mkdir(parents=True, exist_ok=True)
+    if BIN_SYMLINK.is_symlink() or BIN_SYMLINK.exists():
+        BIN_SYMLINK.unlink()
+    BIN_SYMLINK.symlink_to(binary)
+
+    print_success(f"Installed kirie -> {binary}")
 
 
 def _print_steam_notice() -> None:
@@ -254,32 +196,29 @@ def _print_steam_notice() -> None:
     print_warning(
         "Wallpaper Engine assets come from Steam: you must OWN and install Wallpaper Engine "
         "(via Steam, Proton/Windows build) so its Workshop items appear under "
-        "~/.local/share/Steam/steamapps/workshop/content/431960. The renderer itself is now "
-        "built; subscribe to wallpapers in Steam, then pick them with Super+W."
+        "~/.local/share/Steam/steamapps/workshop/content/431960. Subscribe to wallpapers in Steam, "
+        "then pick them with Super+W."
     )
 
 
 # --------------------------------------------------------------------------- entrypoint
 
 def install_wallpaper_engine(aur_helper: str = "yay") -> None:
-    run_shell("figlet 'WALLPAPER ENGINE' -f slant | lolcat", check=False)
+    run_cmd(["sh", "-c", "figlet 'KIRIE' -f slant | lolcat"], check=False)
 
     try:
-        source = _choose_source()
-        if source is None:
+        variant = _choose_variant(aur_helper)
+        if variant is None:
             return
-        kind, location, ref = source
-        _install_build_deps(aur_helper)
-        repo_dir = _prepare_source(kind, location, ref)
-        if repo_dir is None:
-            return
-        _build(repo_dir)
+        tarball = _download(ASSETS[variant])
+        _install_tarball(tarball, ASSETS[variant])
+        shutil.rmtree(tarball.parent, ignore_errors=True)
         _print_steam_notice()
     except Exception as exc:  # noqa: BLE001 — never abort the whole install for this optional step
-        print_warning(f"Wallpaper Engine setup failed: {exc}")
+        print_warning(f"kirie setup failed: {exc}")
         print_warning(
-            "You can finish it later: install the deps, then "
-            "`cd ~/linux-wallpaperengine && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`."
+            "You can finish it later: download a release from "
+            "https://github.com/beingsuz/kirie/releases and unpack the binary to ~/kirie-bin/kirie."
         )
 
 

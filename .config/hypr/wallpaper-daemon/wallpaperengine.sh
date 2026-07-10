@@ -33,9 +33,14 @@ preview_cache="${XDG_CACHE_HOME:-$HOME/.cache}/wallpaperengine/previews"
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/lwe-$monitor.lock"
 flock -w 15 9 || { echo "wallpaperengine.sh: lock timeout for $monitor" >&2; exit 1; }
 
-bin="$HOME/linux-wallpaperengine/build/output/linux-wallpaperengine"
-[ -x "$bin" ] || bin="$(command -v linux-wallpaperengine)" || {
-    notify-send -u critical "Wallpaper Engine" "linux-wallpaperengine is not installed" 2>/dev/null; exit 1; }
+# Renderer binary: kirie (prebuilt, drop-in CLI). Prefer the installed ~/kirie-bin/kirie, else a
+# kirie on PATH. First executable wins.
+bin=""
+for cand in "$HOME/kirie-bin/kirie" "$(command -v kirie 2>/dev/null)"; do
+    [ -n "$cand" ] && [ -x "$cand" ] && { bin="$cand"; break; }
+done
+[ -n "$bin" ] || {
+    notify-send -u critical "Wallpaper Engine" "kirie is not installed" 2>/dev/null; exit 1; }
 
 we()   { jq -r "($1) // empty" "$settings" 2>/dev/null; }
 send() { printf '%s\n' "$*" | socat - "UNIX-CONNECT:$sock" 2>/dev/null; }
