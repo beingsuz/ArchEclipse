@@ -19,7 +19,6 @@ import Pango from "gi://Pango";
 import { Eventbox } from "../../Custom/Eventbox";
 import Player from "../../Player";
 import Crypto from "../../Crypto";
-import Cava from "../../Cava";
 import Bandwidth from "./sub-components/Bandwidth";
 import GLib from "gi://GLib";
 import { WeatherButton } from "../../Weather";
