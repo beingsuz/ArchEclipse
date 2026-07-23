@@ -100,6 +100,26 @@ else
         fi
     done < <(find "$wallpaper_folder" -type d -print0)
 
+    # Wallpaper Engine workshop items (rendered by the kirie engine): one
+    # entry per item, the entry path being the item's preview image inside
+    # the Steam workshop folder. Only shown when the engine is installed.
+    if command -v kirie >/dev/null 2>&1 || [ -x "$HOME/.local/bin/kirie" ]; then
+        for steam_root in "$HOME/.steam/steam" "$HOME/.local/share/Steam"; do
+            we_folder="$steam_root/steamapps/workshop/content/431960"
+            [ -d "$we_folder" ] && break
+        done
+        if [ -d "$we_folder" ]; then
+            we_paths=()
+            for item in "$we_folder"/*/; do
+                p="$(find "$item" -maxdepth 1 -iname 'preview.*' -print -quit 2>/dev/null)"
+                [ -n "$p" ] && we_paths+=("\"$p\"")
+            done
+            if [ ${#we_paths[@]} -gt 0 ]; then
+                wallpaper_paths+=("\"wallpaperengine\": [$(IFS=,; echo "${we_paths[*]}")]")
+            fi
+        fi
+    fi
+
     # Generate thumbnails based on all wallpapers found
     generate_thumbnails "$wallpaper_folder" "$thumbnail_folder"
     

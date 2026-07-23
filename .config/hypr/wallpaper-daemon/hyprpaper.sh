@@ -17,5 +17,8 @@ for pid in $(pgrep -x mpvpaper); do
     fi
 done
 
+# Stop any kirie wallpaper engine bound to this monitor
+"$hyprdir/wallpaper-daemon/stop-engine.sh" "$monitor" 2>/dev/null
+
 # Set wallpaper theme
 "$hyprdir/theme/scripts/wal-theme.sh" "$wallpaper"

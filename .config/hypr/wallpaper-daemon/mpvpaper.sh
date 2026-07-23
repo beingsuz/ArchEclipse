@@ -20,6 +20,9 @@ for pid in $(pgrep -x mpvpaper); do
     fi
 done
 
+# Stop any kirie wallpaper engine bound to this monitor
+"$hyprdir/wallpaper-daemon/stop-engine.sh" "$monitor" 2>/dev/null
+
 # Start mpvpaper in background for animated/video wallpapers
 nohup mpvpaper -o "no-audio --loop --fs --panscan=1.0" "$monitor" "$wallpaper" >/dev/null 2>&1 &
 
