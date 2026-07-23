@@ -113,3 +113,4 @@ alias wallpapers="$HOME/.config/hypr/maintenance/components/wallpapers.py"
 # export PATH=$PATH:$ANDROID_HOME/emulator
 # export PATH=$PATH:$ANDROID_HOME/platform-tools
 ############################################################
+export PATH="$HOME/.local/bin:$PATH"
