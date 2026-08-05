@@ -17,5 +17,9 @@ for pid in $(pgrep -x mpvpaper); do
     fi
 done
 
+# Stop any Wallpaper Engine bound to this monitor: its layer sits above
+# hyprpaper and would keep covering the wallpaper set above.
+"$hyprdir/wallpaper-daemon/wallpaperengine.sh" stop "$monitor" 2>/dev/null
+
 # Set wallpaper theme
 "$hyprdir/theme/scripts/wal-theme.sh" "$wallpaper"

@@ -40,7 +40,11 @@ if [ "$workspace_id" = "$current_workspace" ]; then
     wallpaper_ext="${wallpaper##*.}"
     wallpaper_ext="$(printf '%s' "$wallpaper_ext" | tr '[:upper:]' '[:lower:]')"
     
-    if [ "$wallpaper_ext" = "gif" ] || [ "$wallpaper_ext" = "mp4" ] || [ "$wallpaper_ext" = "webm" ]; then
+    # A Wallpaper Engine item is a Steam Workshop folder (project.json next to
+    # the preview picked in the switcher), not a plain image or video file.
+    if [ -f "$(dirname "$wallpaper")/project.json" ]; then
+        "$hyprDir/wallpaper-daemon/wallpaperengine.sh" "$monitor" "$wallpaper" &
+    elif [ "$wallpaper_ext" = "gif" ] || [ "$wallpaper_ext" = "mp4" ] || [ "$wallpaper_ext" = "webm" ]; then
         "$hyprDir/wallpaper-daemon/mpvpaper.sh" "$monitor" "$wallpaper" &
     else
         "$hyprDir/wallpaper-daemon/hyprpaper.sh" "$monitor" "$wallpaper" &

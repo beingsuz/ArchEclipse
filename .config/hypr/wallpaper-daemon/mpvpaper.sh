@@ -20,6 +20,10 @@ for pid in $(pgrep -x mpvpaper); do
     fi
 done
 
+# Stop any Wallpaper Engine bound to this monitor: its layer sits above
+# mpvpaper and would keep covering the video wallpaper started below.
+"$hyprdir/wallpaper-daemon/wallpaperengine.sh" stop "$monitor" 2>/dev/null
+
 # Start mpvpaper in background for animated/video wallpapers
 nohup mpvpaper -o "no-audio --loop --fs --panscan=1.0" "$monitor" "$wallpaper" >/dev/null 2>&1 &
 

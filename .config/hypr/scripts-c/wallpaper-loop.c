@@ -445,6 +445,36 @@ bool is_media_wallpaper(const char* wallpaper) {
     return strcasecmp(ext, "gif") == 0 || strcasecmp(ext, "mp4") == 0 || strcasecmp(ext, "webm") == 0;
 }
 
+/* Check if wallpaper is a Wallpaper Engine item.
+ *
+ * A Steam Workshop item is a folder holding the wallpaper's assets plus a
+ * project.json manifest; what is stored here is the preview image inside it,
+ * so the manifest sits beside the given path. Mirrors the same test in
+ * wallpaper-daemon/set-wallpaper.sh — without it a workspace switch would fall
+ * through to hyprpaper and show the item's static preview instead of running
+ * the wallpaper. */
+bool is_wallpaper_engine_item(const char* wallpaper) {
+    if (!wallpaper) {
+        return false;
+    }
+
+    const char* slash = strrchr(wallpaper, '/');
+    if (!slash) {
+        return false;
+    }
+
+    char manifest[MAX_PATH_LEN];
+    size_t dir_len = (size_t)(slash - wallpaper);
+    if (dir_len + sizeof("/project.json") > sizeof(manifest)) {
+        return false;
+    }
+    memcpy(manifest, wallpaper, dir_len);
+    manifest[dir_len] = '\0';
+    strncat(manifest, "/project.json", sizeof(manifest) - dir_len - 1);
+
+    return access(manifest, R_OK) == 0;
+}
+
 /* Kill any running wallpaper script instances */
 void kill_wallpaper_script() {
     char cmd[MAX_PATH_LEN];
@@ -521,7 +551,9 @@ void change_wallpaper() {
         
         /* Execute wallpaper change script */
         char cmd[MAX_PATH_LEN * 2];
-        if (is_media_wallpaper(expanded_wallpaper)) {
+        if (is_wallpaper_engine_item(expanded_wallpaper)) {
+            snprintf(cmd, sizeof(cmd), "%s/wallpaper-daemon/wallpaperengine.sh '%s' '%s' &", hypr_dir, monitor, expanded_wallpaper);
+        } else if (is_media_wallpaper(expanded_wallpaper)) {
             snprintf(cmd, sizeof(cmd), "%s/wallpaper-daemon/mpvpaper.sh '%s' '%s' &", hypr_dir, monitor, expanded_wallpaper);
         } else {
             snprintf(cmd, sizeof(cmd), "%s/wallpaper-daemon/hyprpaper.sh '%s' '%s' &", hypr_dir, monitor, expanded_wallpaper);
