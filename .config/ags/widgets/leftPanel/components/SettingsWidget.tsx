@@ -28,6 +28,18 @@ const hyprCustomDir: string = "$HOME/.config/hypr/config/custom";
 
 const weScript: string = "$HOME/.config/hypr/wallpaper-daemon/wallpaperengine.sh";
 
+// Exported: the wallpaper switcher offers the same mode toggle inline, and both
+// places must agree on the values set-wallpaper.sh reads.
+export const wallpaperModeChoices = [
+  { label: "Per Workspace", value: "workspace" },
+  { label: "Global", value: "global" },
+];
+
+const wallpaperPrimaryChoices = [
+  { label: "Workspace 1", value: "workspace1" },
+  { label: "Custom", value: "custom" },
+];
+
 // Re-apply the wallpaper on every monitor. Needed for options the engine binds
 // once at startup (audio capture device, GPU pin).
 const weRestart = () =>
@@ -455,18 +467,24 @@ const BarLayoutSetting = () => {
   );
 };
 
-const Setting = ({
+export const Setting = ({
   keyChanged,
   setting,
   callBack,
   choices,
+  compact = false,
 }: {
   keyChanged: string;
   setting: AGSSetting;
   callBack?: (newValue?: any) => void;
   choices?: { label: string; value: any }[];
+  // Sized for a toolbar row instead of the settings panel column, so the
+  // wallpaper switcher can reuse a row without it stretching across the window.
+  compact?: boolean;
 }) => {
-  const Title = () => <label hexpand xalign={0} label={setting.name} />;
+  const Title = () => (
+    <label hexpand={!compact} xalign={0} label={setting.name} />
+  );
 
   const SliderWidget = () => {
     const infoLabel = (
@@ -551,13 +569,17 @@ const Setting = ({
 
   const SelectWidget = () => {
     return (
-      <box orientation={Gtk.Orientation.VERTICAL} spacing={10}>
+      <box
+        orientation={Gtk.Orientation.VERTICAL}
+        spacing={10}
+        halign={compact ? Gtk.Align.START : Gtk.Align.FILL}
+      >
         <Title />
-        <box spacing={5}>
+        <box spacing={5} hexpand={!compact}>
           {choices &&
             choices.map((choice) => (
               <togglebutton
-                hexpand
+                hexpand={!compact}
                 label={choice.label}
                 active={globalSettings((s) => {
                   // get current value from AGSSetting from settings
@@ -906,6 +928,33 @@ export default () => {
                   value: ["bottom", "right"],
                 },
               ]}
+            />
+          </box>
+          <box
+            class={"category"}
+            orientation={Gtk.Orientation.VERTICAL}
+            spacing={16}
+          >
+            <label label="Wallpaper" halign={Gtk.Align.START} />
+            {/* Mode and primary source are read from settings.json by the
+                wallpaper daemon when it resolves what to show, so they need no
+                callback here — they take effect on the next wallpaper change. */}
+            <Setting
+              keyChanged="wallpaper.mode"
+              setting={globalSettings.peek().wallpaper.mode}
+              choices={wallpaperModeChoices}
+            />
+            <Setting
+              keyChanged="wallpaper.primarySource"
+              setting={globalSettings.peek().wallpaper.primarySource}
+              choices={wallpaperPrimaryChoices}
+            />
+            {/* Video/GIF wallpapers pick this up on their next start; a running
+                engine takes it live (and is restarted if it cannot). */}
+            <Setting
+              keyChanged="wallpaper.playbackSpeed"
+              setting={globalSettings.peek().wallpaper.playbackSpeed}
+              callBack={(v) => weCtl(`speed ${v}`)}
             />
           </box>
           <box

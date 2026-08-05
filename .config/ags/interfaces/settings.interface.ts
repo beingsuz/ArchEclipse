@@ -104,6 +104,11 @@ export interface Settings {
   wallpaperSwitcher: {
     category: string;
   };
+  wallpaper: {
+    mode: AGSSetting;
+    primarySource: AGSSetting;
+    playbackSpeed: AGSSetting;
+  };
   wallpaperEngine: {
     gpu: AGSSetting;
     fitRenderToOutput: AGSSetting;

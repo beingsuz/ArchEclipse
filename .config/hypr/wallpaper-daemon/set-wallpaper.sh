@@ -1,12 +1,18 @@
 #!/bin/bash
+#
+# set-wallpaper.sh <slot> <monitor> [wallpaper]
+#
+# <slot> is a workspace number, "global" (the one wallpaper used in Global mode)
+# or "primary" (the fallback shown where nothing is set). Each is stored in the
+# monitor's defaults.conf under its own key: w-<number>=, global=, primary=.
 
 hyprDir="$HOME/.config/hypr"
-workspace_id="$1"
+slot="$1"
 monitor="$2"
 wallpaper="$3"
 
-if [ -z "$workspace_id" ] || [ -z "$monitor" ]; then
-    echo "Usage: set-wallpaper.sh <workspace_id> <monitor> [wallpaper]"
+if [ -z "$slot" ] || [ -z "$monitor" ]; then
+    echo "Usage: set-wallpaper.sh <slot|global|primary> <monitor> [wallpaper]"
     exit 1
 fi
 
@@ -24,22 +30,49 @@ if [ ! -f "$current_config" ]; then
     exit 1
 fi
 
+case "$slot" in
+    global|primary) key="$slot" ;;
+    *) key="w-${slot}" ;;
+esac
+
+read_key() { grep "^$1=" "$current_config" | cut -d'=' -f2- | head -n 1; }
+
 current_workspace="$(hyprctl monitors -j | jq -r --arg monitor "$monitor" '.[] | select(.name == $monitor) | .activeWorkspace.id')"
 
-if ! grep -q "^w-${workspace_id}=" "$current_config"; then
-    echo "w-${workspace_id}=" >> "$current_config"
+if ! grep -q "^${key}=" "$current_config"; then
+    echo "${key}=" >> "$current_config"
 fi
 
-old_wallpaper="$(grep "^w-${workspace_id}=" "$current_config" | cut -d'=' -f2- | head -n 1)"
+old_wallpaper="$(read_key "$key")"
 if [ "$old_wallpaper" = "$wallpaper" ]; then
     echo "Wallpaper is already set to $wallpaper"
     exit 0
 fi
 
-if [ "$workspace_id" = "$current_workspace" ]; then
+# Which slot the monitor is showing right now: in Global mode always "global",
+# otherwise the wallpaper of the active workspace.
+settings="$HOME/.config/ags/cache/settings/settings.json"
+mode="workspace"
+if command -v jq >/dev/null 2>&1 && [ -f "$settings" ]; then
+    m="$(jq -r '(.wallpaper.mode.value) // "workspace"' "$settings" 2>/dev/null)"
+    [ -n "$m" ] && [ "$m" != "null" ] && mode="$m"
+fi
+
+if [ "$mode" = "global" ]; then
+    active_slot="global"
+    active_key="global"
+else
+    active_slot="$current_workspace"
+    active_key="w-${current_workspace}"
+fi
+
+# Render only what is on screen: the slot being shown, or "primary" when that
+# slot has no wallpaper of its own and the fallback is what is visible.
+if [ "$slot" = "$active_slot" ] ||
+    { [ "$slot" = "primary" ] && [ -z "$(read_key "$active_key")" ]; }; then
     wallpaper_ext="${wallpaper##*.}"
     wallpaper_ext="$(printf '%s' "$wallpaper_ext" | tr '[:upper:]' '[:lower:]')"
-    
+
     # A Wallpaper Engine item is a Steam Workshop folder (project.json next to
     # the preview picked in the switcher), not a plain image or video file.
     if [ -f "$(dirname "$wallpaper")/project.json" ]; then
@@ -51,4 +84,4 @@ if [ "$workspace_id" = "$current_workspace" ]; then
     fi
 fi
 
-sed -i "s|^w-${workspace_id}=.*|w-${workspace_id}=${wallpaper}|" "$current_config"
+sed -i "s|^${key}=.*|${key}=${wallpaper}|" "$current_config"

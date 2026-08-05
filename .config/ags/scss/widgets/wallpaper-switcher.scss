@@ -76,4 +76,12 @@
   .category-selector .popover {
     @include module;
   }
+
+  // Stands in for the per-workspace strip while Wallpaper Mode is Global:
+  // there is a single wallpaper, so there is nothing to pick between.
+  .global-indicator {
+    @include module;
+    padding: $SCALE / 2 $SCALE;
+    color: $foreground;
+  }
 }

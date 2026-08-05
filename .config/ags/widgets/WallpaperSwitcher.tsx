@@ -19,6 +19,10 @@ import { Gdk } from "ags/gtk4";
 import { formatKiloBytes } from "../utils/bytes";
 import { readJson } from "../utils/json";
 import GLib from "gi://GLib";
+import {
+  Setting,
+  wallpaperModeChoices,
+} from "./leftPanel/components/SettingsWidget";
 
 export function toThumbnailPath(file: string) {
   return file
@@ -41,8 +45,15 @@ export default ({
     "loading" | "error" | "success" | "idle"
   >("idle");
 
-  const targetTypes = ["workspace", "sddm", "lockscreen"];
+  const targetTypes = ["workspace", "primary", "sddm", "lockscreen"];
   const [targetType, setTargetType] = createState<string>("workspace");
+
+  // Slot that the "workspace" target writes to: in Global mode there is only
+  // one wallpaper for the whole session, so it goes to the "global" slot.
+  const currentSlot = () =>
+    globalSettings.peek().wallpaper.mode.value === "global"
+      ? "global"
+      : String(selectedWorkspaceId.peek());
 
   const [wallpapers, setWallpapers] = createState<Record<string, string[]>>({});
 
@@ -173,7 +184,13 @@ export default ({
                     ],
                     workspace: [
                       `${GLib.get_home_dir()}/.config/hypr/wallpaper-daemon/set-wallpaper.sh`,
-                      String(selectedWorkspaceId.peek()),
+                      currentSlot(),
+                      String((self.get_root() as any).monitorName),
+                      wallpaper,
+                    ],
+                    primary: [
+                      `${GLib.get_home_dir()}/.config/hypr/wallpaper-daemon/set-wallpaper.sh`,
+                      "primary",
                       String((self.get_root() as any).monitorName),
                       wallpaper,
                     ],
@@ -311,7 +328,7 @@ export default ({
             ];
           execAsync([
             `${GLib.get_home_dir()}/.config/hypr/wallpaper-daemon/set-wallpaper.sh`,
-            String(selectedWorkspaceId.peek()),
+            currentSlot(),
             String((self.get_root() as any).monitorName),
             randomWallpaper,
           ])
@@ -506,6 +523,15 @@ export default ({
       </menubutton>
     );
 
+    const modeSelector = (
+      <Setting
+        compact
+        keyChanged="wallpaper.mode"
+        setting={globalSettings.peek().wallpaper.mode}
+        choices={wallpaperModeChoices}
+      />
+    );
+
     const actions = (
       <box
         class="actions"
@@ -515,6 +541,7 @@ export default ({
       >
         {targetButtons}
         {selectedWorkspaceLabel}
+        {modeSelector}
         {displayColorScheme}
         {categorySelector}
         {randomButton}
@@ -533,7 +560,24 @@ export default ({
         orientation={Gtk.Orientation.VERTICAL}
         spacing={5}
       >
-        {getCurrentWorkspaces}
+        {/* Per-workspace strip only makes sense per workspace; in Global mode
+            there is a single wallpaper, so say so instead. */}
+        <box
+          visible={globalSettings(
+            ({ wallpaper }) => wallpaper.mode.value !== "global",
+          )}
+        >
+          {getCurrentWorkspaces}
+        </box>
+        <box
+          class="global-indicator"
+          halign={Gtk.Align.CENTER}
+          visible={globalSettings(
+            ({ wallpaper }) => wallpaper.mode.value === "global",
+          )}
+        >
+          <label label="󰸉  Global — one wallpaper for all workspaces" />
+        </box>
         {actions}
         {allWallpapersDisplay}
       </box>

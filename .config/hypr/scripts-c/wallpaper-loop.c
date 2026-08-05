@@ -243,11 +243,11 @@ void expand_path(const char* input, char* output, size_t output_size) {
 }
 
 /*
- * Get wallpaper path for specific workspace
+ * Get wallpaper path for an arbitrary config key
  * Reads from monitor-specific config file
- * Format: w-{workspace_id}={wallpaper_path}
+ * Format: {key}={wallpaper_path}, where key is "w-{id}", "global" or "primary"
  */
-bool get_wallpaper_for_workspace(const char* monitor, int workspace_id, char* wallpaper, size_t size) {
+bool get_wallpaper_for_key(const char* monitor, const char* key, char* wallpaper, size_t size) {
     char config_path[MAX_PATH_LEN];
     snprintf(config_path, sizeof(config_path), "%s/wallpaper-daemon/config/%s/defaults.conf", hypr_dir, monitor);
     
@@ -260,8 +260,8 @@ bool get_wallpaper_for_workspace(const char* monitor, int workspace_id, char* wa
     }
     
     char line[MAX_LINE_LEN];
-    char ws_key[32];
-    snprintf(ws_key, sizeof(ws_key), "w-%d=", workspace_id);
+    char ws_key[64];
+    snprintf(ws_key, sizeof(ws_key), "%s=", key);
     
     bool found = false;
     while (fgets(line, sizeof(line), fp)) {
@@ -277,6 +277,76 @@ bool get_wallpaper_for_workspace(const char* monitor, int workspace_id, char* wa
     
     fclose(fp);
     return found;
+}
+
+/*
+ * Read a string setting from the AGS settings.json, falling back to the given
+ * default when the file, jq or the key is missing.
+ */
+void read_wallpaper_setting(const char* jq_filter, const char* fallback, char* out, size_t n) {
+    const char* home = getenv("HOME");
+    if (!home) {
+        home = "";
+    }
+
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "jq -r '(%s) // \"%s\"' '%s/.config/ags/cache/settings/settings.json' 2>/dev/null",
+             jq_filter, fallback, home);
+
+    char* o = exec_command(cmd);
+    if (!o) {
+        strncpy(out, fallback, n - 1);
+        out[n - 1] = '\0';
+        return;
+    }
+
+    o[strcspn(o, "\n")] = 0;
+    if (o[0] == '\0' || strcmp(o, "null") == 0) {
+        strncpy(out, fallback, n - 1);
+    } else {
+        strncpy(out, o, n - 1);
+    }
+    /* Not freed: exec_command returns a static buffer, not an allocation. */
+    out[n - 1] = '\0';
+}
+
+/*
+ * Resolve which wallpaper a monitor should show, honouring Wallpaper Mode and
+ * the primary fallback. Writes an empty string when nothing is configured.
+ *
+ * Without this the loop would only ever read "w-<id>", so Global mode would be
+ * silently undone by the next workspace switch: the switch would re-apply that
+ * workspace's own wallpaper over the global one.
+ */
+void resolve_wallpaper(const char* monitor, int workspace_id, char* out, size_t size) {
+    char mode[32];
+    read_wallpaper_setting(".wallpaper.mode.value", "workspace", mode, sizeof(mode));
+
+    out[0] = '\0';
+    bool got = false;
+
+    if (strcmp(mode, "global") == 0) {
+        got = get_wallpaper_for_key(monitor, "global", out, size) && out[0] != '\0';
+    } else {
+        char key[32];
+        snprintf(key, sizeof(key), "w-%d", workspace_id);
+        got = get_wallpaper_for_key(monitor, key, out, size) && out[0] != '\0';
+    }
+
+    if (!got) {
+        /* Nothing set for what is being shown: fall back to the primary, which
+         * is either an explicitly chosen wallpaper or workspace 1's. */
+        char src[32];
+        read_wallpaper_setting(".wallpaper.primarySource.value", "workspace1", src, sizeof(src));
+
+        if (strcmp(src, "custom") == 0) {
+            got = get_wallpaper_for_key(monitor, "primary", out, size) && out[0] != '\0';
+        }
+        if (!got && !(get_wallpaper_for_key(monitor, "w-1", out, size) && out[0] != '\0')) {
+            out[0] = '\0';
+        }
+    }
 }
 
 /*
@@ -517,8 +587,12 @@ void change_wallpaper() {
             continue;
         }
         
+        /* Honour Wallpaper Mode and the primary fallback rather than reading
+         * this workspace's key directly, or a workspace switch would undo a
+         * Global wallpaper by re-applying the per-workspace one. */
         char wallpaper[MAX_PATH_LEN];
-        if (!get_wallpaper_for_workspace(monitor, workspace_id, wallpaper, sizeof(wallpaper))) {
+        resolve_wallpaper(monitor, workspace_id, wallpaper, sizeof(wallpaper));
+        if (wallpaper[0] == '\0') {
             char error_msg[512];
             snprintf(error_msg, sizeof(error_msg), "No wallpaper config for '%s' workspace %d", monitor, workspace_id);
             notify_error("change_wallpaper", error_msg);

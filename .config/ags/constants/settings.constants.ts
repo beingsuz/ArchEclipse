@@ -238,6 +238,35 @@ export const defaultSettings: Settings = {
   wallpaperSwitcher: {
     category: "defaults/sfw",
   },
+  wallpaper: {
+    mode: {
+      name: "Wallpaper Mode",
+      value: "global",
+      type: "select",
+      min: 0,
+      max: 0,
+      tooltip:
+        "Per Workspace: each workspace can have its own wallpaper.\nGlobal: one wallpaper is used everywhere.",
+    },
+    primarySource: {
+      name: "Primary (Fallback) Wallpaper",
+      value: "workspace1",
+      type: "select",
+      min: 0,
+      max: 0,
+      tooltip:
+        "Used for workspaces with nothing set (and in Global mode if no global wallpaper is chosen).\nWorkspace 1: reuse workspace 1's wallpaper. Custom: use the wallpaper set with the 'primary' target.",
+    },
+    playbackSpeed: {
+      name: "Playback Speed",
+      value: 1,
+      type: "float",
+      min: 0.1,
+      max: 2,
+      tooltip:
+        "Animation speed (1 = normal, 0.5 = half, 2 = double). Applies to video/GIF wallpapers, and to Wallpaper Engine scenes.",
+    },
+  },
   wallpaperEngine: {
     gpu: {
       name: "Render GPU",

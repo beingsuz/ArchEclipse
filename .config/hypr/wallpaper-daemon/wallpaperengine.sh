@@ -229,6 +229,10 @@ cmd_apply() {
     # stale socket answers nothing and falls through to a fresh start.
     if [ -S "$sock" ]; then
         stage_props
+        # Playback speed is a launch flag, so a swapped-in wallpaper would run at
+        # whatever speed the engine started with; push the current value instead.
+        v="$(setting .wallpaper.playbackSpeed.value)"
+        [ -n "$v" ] && send "$sock" "speed $v" >/dev/null
         resp="$(send "$sock" "bg $monitor $dir")"
         case "$resp" in
             ok) printf '%s\n' "$dir" > "$rt/$monitor.current"
@@ -247,6 +251,10 @@ cmd_apply() {
     v="$(setting .wallpaperEngine.fps.value)";         [ -n "$v" ] && args+=(--fps "$v")
     v="$(setting .wallpaperEngine.renderScale.value)"; [ -n "$v" ] && args+=(--render-scale "$v")
     v="$(setting .wallpaperEngine.audioDevice.value)"; [ -n "$v" ] && args+=(--audio-device "$v")
+    # Animation speed, shared with video/GIF wallpapers. Omitted at 1 so the
+    # default stays whatever the engine considers normal.
+    v="$(setting .wallpaper.playbackSpeed.value)"
+    [ -n "$v" ] && [ "$v" != 1 ] && args+=(--playback-speed "$v")
     # Which GPU renders. kirie resolves the token to a Vulkan ICD and pins the
     # loader to it, which also roughly halves engine memory: the loader
     # otherwise keeps every installed vendor stack resident. "auto" leaves it
@@ -445,11 +453,21 @@ cmd_properties() {
             fi
             jq -c --argjson ov "$ov" '
                 (.general.properties // {}) | to_entries
+                # `//` is the WRONG operator for anything that can legitimately
+                # be false or 0: jq treats both as empty, so `false // null`
+                # yields null and a bool property that is simply OFF reaches the
+                # UI as "no value" — its toggle then renders undefined instead
+                # of off. Same trap for a slider whose min/max/step is 0. Only
+                # `text` and `type` may use it: an empty string there is no more
+                # useful than a missing one.
                 | map({ key: .key, type: (.value.type // "unknown"),
-                        text: (.value.text // .key), value: (.value.value // null),
-                        options: (.value.options // null), min: (.value.min // null),
-                        max: (.value.max // null), step: (.value.step // null),
-                        order: (.value.order // 0) })
+                        text: (.value.text // .key),
+                        value: (if .value.value == null then null else .value.value end),
+                        options: (if .value.options == null then null else .value.options end),
+                        min: (if .value.min == null then null else .value.min end),
+                        max: (if .value.max == null then null else .value.max end),
+                        step: (if .value.step == null then null else .value.step end),
+                        order: (if .value.order == null then 0 else .value.order end) })
                 | sort_by(.order)
                 | map(if $ov[.key] != null then .value = $ov[.key] else . end)
             ' "$dir/project.json" 2>/dev/null || echo "[]"
