@@ -238,6 +238,129 @@ export const defaultSettings: Settings = {
   wallpaperSwitcher: {
     category: "defaults/sfw",
   },
+  wallpaperEngine: {
+    gpu: {
+      name: "Render GPU",
+      value: "auto",
+      type: "select",
+      min: 0,
+      max: 0,
+      tooltip:
+        "Which GPU renders the wallpaper; the list is the Vulkan drivers installed on this machine.\nPicking one instead of Automatic also roughly halves engine memory, because the Vulkan loader otherwise keeps every installed vendor stack resident.\nApplied on the next wallpaper load.",
+    },
+    fitRenderToOutput: {
+      name: "Match Render Size to Screen",
+      value: false,
+      type: "bool",
+      min: 0,
+      max: 1,
+      tooltip:
+        "Scenes render at the size their author chose, which is often larger than your screen; the extra pixels are drawn and then discarded.\nEnabling this caps the render at your resolution — measured ~20% fewer GPU cycles on such a wallpaper — at the cost of the supersampling that oversizing gives for free.\nApplied on the next wallpaper load.",
+    },
+    releaseHiddenAfter: {
+      name: "Free Memory When Hidden (s)",
+      value: 0,
+      type: "int",
+      min: 0,
+      max: 300,
+      tooltip:
+        "Release the wallpaper's memory once a fullscreen app has covered it for this many seconds, rebuilding it when it becomes visible again.\nLargest win for web wallpapers, whose browser process is freed with it. 0 disables.\nApplied on the next wallpaper load.",
+    },
+    scaling: {
+      name: "Scaling Mode",
+      value: "default",
+      type: "select",
+      min: 0,
+      max: 0,
+      tooltip:
+        "How the wallpaper is fit to the screen.\nDefault keeps the author's setting, Fill crops, Fit letterboxes, Stretch distorts.",
+    },
+    clamping: {
+      name: "Clamp Mode",
+      value: "clamp",
+      type: "select",
+      min: 0,
+      max: 0,
+      tooltip: "How texture edges are handled (clamp / border / repeat).",
+    },
+    fps: {
+      name: "FPS Limit",
+      value: 30,
+      type: "int",
+      min: 5,
+      max: 240,
+      tooltip: "Frame rate cap. Lower values save battery and GPU.",
+    },
+    renderScale: {
+      name: "Render Scale",
+      value: 1,
+      type: "float",
+      min: 0.5,
+      max: 2,
+      tooltip:
+        "Supersampling factor. Above 1 antialiases scene wallpapers at higher GPU cost, below 1 renders faster.",
+    },
+    volume: {
+      name: "Volume",
+      value: 15,
+      type: "int",
+      min: 0,
+      max: 100,
+      tooltip: "Audio volume (ignored while Mute Audio is on).",
+    },
+    mute: {
+      name: "Mute Audio",
+      value: true,
+      type: "bool",
+      min: 0,
+      max: 1,
+      tooltip:
+        "Silence the wallpaper output. Sound-reactive wallpapers keep reacting to system audio.",
+    },
+    noAutomute: {
+      name: "Disable Auto-mute",
+      value: false,
+      type: "bool",
+      min: 0,
+      max: 1,
+      tooltip:
+        "By default wallpaper audio mutes while another app plays sound. Enable to keep it playing.",
+    },
+    disableMouse: {
+      name: "Disable Mouse Interaction",
+      value: false,
+      type: "bool",
+      min: 0,
+      max: 1,
+      tooltip: "Stop the wallpaper from reacting to the cursor.",
+    },
+    disableParallax: {
+      name: "Disable Parallax",
+      value: false,
+      type: "bool",
+      min: 0,
+      max: 1,
+      tooltip: "Disable the depth/parallax movement effect.",
+    },
+    noFullscreenPause: {
+      name: "Don't Pause on Fullscreen",
+      value: false,
+      type: "bool",
+      min: 0,
+      max: 1,
+      tooltip:
+        "By default the wallpaper pauses behind a fullscreen app. Enable to keep it running.",
+    },
+    audioDevice: {
+      name: "Audio Device",
+      value: "",
+      type: "string",
+      min: 0,
+      max: 0,
+      tooltip:
+        "Audio output that sound-reactive wallpapers listen to. Empty = system default.\nApplied on the next wallpaper load.",
+    },
+  },
   apiKeys: {
     openrouter: {
       user: {

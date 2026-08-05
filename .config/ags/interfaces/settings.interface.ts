@@ -104,6 +104,22 @@ export interface Settings {
   wallpaperSwitcher: {
     category: string;
   };
+  wallpaperEngine: {
+    gpu: AGSSetting;
+    fitRenderToOutput: AGSSetting;
+    releaseHiddenAfter: AGSSetting;
+    scaling: AGSSetting;
+    clamping: AGSSetting;
+    fps: AGSSetting;
+    renderScale: AGSSetting;
+    volume: AGSSetting;
+    mute: AGSSetting;
+    noAutomute: AGSSetting;
+    disableMouse: AGSSetting;
+    disableParallax: AGSSetting;
+    noFullscreenPause: AGSSetting;
+    audioDevice: AGSSetting;
+  };
   apiKeys: {
     openrouter: {
       user: AGSSetting;
