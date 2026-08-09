@@ -50,6 +50,9 @@ generate_thumbnails() {
     find "$thumb_dir" -type f | while read -r thumb; do
         # Get relative path from thumb_dir to match with source structure
         relative_path="${thumb#$thumb_dir/}"
+
+        # WE thumbs have no source here; the Workshop scan prunes them
+        case "$relative_path" in wallpaperengine/*) continue ;; esac
         relative_no_ext="${relative_path%.*}"
 
         original_exists=false
@@ -99,6 +102,33 @@ else
             wallpaper_paths+=("\"$category\": [$(IFS=,; echo "${paths[*]}")]")
         fi
     done < <(find "$wallpaper_folder" -type d -print0)
+
+    # Wallpaper Engine items, from `kirie list`: it knows where Steam put
+    # them and which the engine can actually render. Only those are listed.
+    kirie_bin="$(command -v kirie 2>/dev/null)"
+    [ -x "$kirie_bin" ] || kirie_bin="$HOME/.local/bin/kirie"
+    if [ -x "$kirie_bin" ]; then
+        we_paths=()
+        mkdir -p "$thumbnail_folder/wallpaperengine"
+        while IFS=$'\t' read -r id preview; do
+            [ -n "$preview" ] || continue
+            we_paths+=("\"$preview\"")
+
+            # keyed by item id, not by source path
+            thumb="$thumbnail_folder/wallpaperengine/$id.jpg"
+            if [ ! -f "$thumb" ]; then
+                ext="${preview##*.}"; ext="${ext,,}"
+                case "$ext" in
+                    mp4|webm|mkv|mov) ffmpeg -y -loglevel error -i "$preview" -vf "thumbnail,scale=256:-1" -frames:v 1 "$thumb" >/dev/null 2>&1 & ;;
+                    gif)              magick "${preview}[0]" -resize 256x256 -quality 85 -strip "$thumb" >/dev/null 2>&1 & ;;
+                    *)                magick "$preview" -resize 256x256 -quality 85 -strip "$thumb" >/dev/null 2>&1 & ;;
+                esac
+            fi
+        done < <("$kirie_bin" list --json 2>/dev/null |
+            jq -r '.[] | select(.renderable and .preview != null) | [.id, .preview] | @tsv')
+        wait
+        [ ${#we_paths[@]} -gt 0 ] && wallpaper_paths+=("\"wallpaperengine\": [$(IFS=,; echo "${we_paths[*]}")]")
+    fi
 
     # Generate thumbnails based on all wallpapers found
     generate_thumbnails "$wallpaper_folder" "$thumbnail_folder"

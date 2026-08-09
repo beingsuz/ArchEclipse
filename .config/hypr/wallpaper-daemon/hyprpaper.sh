@@ -10,12 +10,15 @@ hyprctl hyprpaper wallpaper "$monitor,$wallpaper"
 
 sleep 1 # Wait for wallpaper to be set (removes stuttering)
 
-# Stop any running mpvpaper instance on this monitor when switching to static wallpaper
+# static wallpaper replaces mpvpaper
 for pid in $(pgrep -x mpvpaper); do
     if tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q "$monitor"; then
         kill "$pid" 2>/dev/null
     fi
 done
+
+# engine layer would cover this
+"$hyprdir/wallpaper-daemon/stop-engine.sh" "$monitor" 2>/dev/null
 
 # Set wallpaper theme
 "$hyprdir/theme/scripts/wal-theme.sh" "$wallpaper"

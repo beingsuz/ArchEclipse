@@ -20,8 +20,19 @@ for pid in $(pgrep -x mpvpaper); do
     fi
 done
 
+# engine layer would cover this
+"$hyprdir/wallpaper-daemon/stop-engine.sh" "$monitor" 2>/dev/null
+
+# Read playback speed from settings (defaults to 1 = normal).
+settings="$HOME/.config/ags/cache/settings/settings.json"
+speed="1"
+if command -v jq >/dev/null 2>&1 && [ -f "$settings" ]; then
+    s="$(jq -r '(.wallpaper.playbackSpeed.value) // 1' "$settings" 2>/dev/null)"
+    [ -n "$s" ] && [ "$s" != "null" ] && speed="$s"
+fi
+
 # Start mpvpaper in background for animated/video wallpapers
-nohup mpvpaper -o "no-audio --loop --fs --panscan=1.0 --hwdec=auto-safe" "$monitor" "$wallpaper" >/dev/null 2>&1 &
+nohup mpvpaper -o "no-audio --loop --fs --panscan=1.0 --hwdec=auto-safe --speed=$speed" "$monitor" "$wallpaper" >/dev/null 2>&1 &
 
 sleep 1 # Wait for wallpaper to be set (removes stuttering)
 
