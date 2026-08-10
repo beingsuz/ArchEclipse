@@ -28,7 +28,7 @@ case "$cmd" in
                 key: .key,
                 type: (.value.type // "unknown"),
                 text: (.value.text // .key),
-                value: (.value.value // null),
+                value: (if (.value | has("value")) then .value.value else null end),
                 options: (.value.options // null),
                 min: (.value.min // null),
                 max: (.value.max // null),
