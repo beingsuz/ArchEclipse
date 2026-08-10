@@ -6,11 +6,39 @@
 
 [ -n "$1" ] || exit 0
 
+rt="${XDG_RUNTIME_DIR:-/tmp}"
 found_socket=0
 delivered=0
 last_response=""
 
-for sock in "${XDG_RUNTIME_DIR:-/tmp}"/lwe-*.sock; do
+send() { # send <sock> <cmd>
+    local response
+    response="$(printf '%s\n' "$2" | timeout 2 socat - "UNIX-CONNECT:$1" 2>/dev/null | tr -d '\r\n')"
+    last_response="$response"
+    case "$response" in
+        ""|error*|"unknown command"*) return 1 ;;
+    esac
+    return 0
+}
+
+# Shared engine (one daemon, all monitors): screen-scoped commands are sent
+# once per monitor over the same socket.
+if [ -S "$rt/lwe.sock" ]; then
+    found_socket=1
+    case "$1" in
+        scaling|clamp|property)
+            for monitor in $(hyprctl monitors -j | jq -r '.[].name'); do
+                send "$rt/lwe.sock" "$1 $monitor ${*:2}" && delivered=$((delivered + 1))
+            done
+            ;;
+        *)
+            send "$rt/lwe.sock" "$*" && delivered=$((delivered + 1))
+            ;;
+    esac
+fi
+
+# Per-monitor engines (legacy layout, or a mid-migration session).
+for sock in "$rt"/lwe-*.sock; do
     [ -S "$sock" ] || continue
     found_socket=1
     monitor="${sock##*/lwe-}"
@@ -21,14 +49,7 @@ for sock in "${XDG_RUNTIME_DIR:-/tmp}"/lwe-*.sock; do
         *)                      cmd="$*" ;;
     esac
 
-    response="$(printf '%s\n' "$cmd" | timeout 2 socat - "UNIX-CONNECT:$sock" 2>/dev/null | tr -d '\r\n')"
-    last_response="$response"
-
-    case "$response" in
-        # no reply or rejection -> not delivered
-        ""|error*|"unknown command"*) continue ;;
-    esac
-    delivered=$((delivered + 1))
+    send "$sock" "$cmd" && delivered=$((delivered + 1))
 done
 
 if [ "$found_socket" = 0 ]; then
