@@ -1122,6 +1122,11 @@ export default () => {
               callBack={(v) => controlWE(`set fps ${v}`)}
             />
             <Setting
+              keyChanged="wallpaperEngine.batteryFps"
+              setting={globalSettings.peek().wallpaperEngine.batteryFps}
+              callBack={(v) => controlWE(`set batteryfps ${v}`)}
+            />
+            <Setting
               keyChanged="wallpaperEngine.renderScale"
               setting={globalSettings.peek().wallpaperEngine.renderScale}
               callBack={(v) => controlWEOrRestart(`set renderscale ${v}`)}

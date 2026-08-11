@@ -389,6 +389,15 @@ export const defaultSettings: Settings = {
       max: 240,
       tooltip: "Frame rate cap. Lower values save battery and GPU.",
     },
+    batteryFps: {
+      name: "Battery FPS Limit",
+      value: 10,
+      type: "int",
+      min: 0,
+      max: 60,
+      tooltip:
+        "Frame rate cap applied automatically while on battery power.\nAlso pauses background pre-baking and halves internal update rates.\n0 disables the battery profile entirely.",
+    },
     renderScale: {
       name: "Render Scale (Quality)",
       value: 1,
