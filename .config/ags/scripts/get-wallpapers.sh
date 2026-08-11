@@ -109,10 +109,12 @@ else
     [ -x "$kirie_bin" ] || kirie_bin="$HOME/.local/bin/kirie"
     if [ -x "$kirie_bin" ]; then
         we_paths=()
+        we_types=()
         mkdir -p "$thumbnail_folder/wallpaperengine"
-        while IFS=$'\t' read -r id preview; do
+        while IFS=$'\t' read -r id preview wtype; do
             [ -n "$preview" ] || continue
             we_paths+=("\"$preview\"")
+            we_types+=("\"$preview\": \"${wtype:-scene}\"")
 
             # keyed by item id, not by source path
             thumb="$thumbnail_folder/wallpaperengine/$id.jpg"
@@ -125,9 +127,14 @@ else
                 esac
             fi
         done < <("$kirie_bin" list --json 2>/dev/null |
-            jq -r '.[] | select(.renderable and .preview != null) | [.id, .preview] | @tsv')
+            jq -r '.[] | select(.renderable and .preview != null) | [.id, .preview, .type] | @tsv')
         wait
-        [ ${#we_paths[@]} -gt 0 ] && wallpaper_paths+=("\"wallpaperengine\": [$(IFS=,; echo "${we_paths[*]}")]")
+        if [ ${#we_paths[@]} -gt 0 ]; then
+            wallpaper_paths+=("\"wallpaperengine\": [$(IFS=,; echo "${we_paths[*]}")]")
+            # Per-item WE type (scene/web/video/...), keyed by the listed path —
+            # the switcher's badge reads this (__types) instead of guessing.
+            wallpaper_paths+=("\"__types\": {$(IFS=,; echo "${we_types[*]}")}")
+        fi
     fi
 
     # Generate thumbnails based on all wallpapers found

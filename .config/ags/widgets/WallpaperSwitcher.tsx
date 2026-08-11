@@ -239,14 +239,11 @@ export default ({
                       FetchCurrentWallpapers(
                         (self.get_root() as any).monitorName,
                       );
-                    })
-                    .finally(() => {
                       setProgressStatus("success");
                     })
                     .catch((err) => {
                       setProgressStatus("error");
                       notify({ summary: "Error", body: String(err) });
-                      throw err;
                     });
                 };
 
@@ -301,6 +298,10 @@ export default ({
                     return "N/A";
                   }
                 };
+                // stat once per tile — the tooltip transform below re-runs for
+                // every tile on each target-type click, and a sync stat per
+                // tile per click stalls the main loop.
+                const sizeLabel = fileSize(wallpaper);
 
                 return (
                   <button
@@ -325,7 +326,7 @@ export default ({
                         // get filename from path
                         `\n ${wallpaper.split("/").pop()}` +
                         // file size
-                        `\n Size: ${fileSize(wallpaper)}`,
+                        `\n Size: ${sizeLabel}`,
                     )}
                   >
                     <Picture
