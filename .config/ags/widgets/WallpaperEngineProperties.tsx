@@ -366,36 +366,31 @@ export function WallpaperEngineProperties({
       case "file": {
         // Wallpaper Engine "file" properties hold an image path the
         // wallpaper's script loads (custom image slots). A raw text entry is
-        // hostile for paths — use the GTK file dialog and show the picked
-        // file's name on the button.
+        // hostile for paths — pick via zenity, like the switcher's
+        // add-wallpaper flow. Deliberately NOT Gtk.FileDialog: a modal
+        // dialog parented from a layer-shell surface crashed Hyprland
+        // (ABRT in the compositor's beginRender when the dialog mapped);
+        // a separate zenity process can't take the compositor down.
         const [picked, setPicked] = createState(String(p.value ?? ""));
-        const pick = (self: Gtk.Button) => {
-          const dialog = new Gtk.FileDialog({ title: p.text || "Choose image" });
-          const images = new Gtk.FileFilter();
-          images.set_name("Images");
-          images.add_mime_type("image/*");
-          const filters = new Gio.ListStore({ item_type: Gtk.FileFilter });
-          filters.append(images);
-          const any = new Gtk.FileFilter();
-          any.set_name("All files");
-          any.add_pattern("*");
-          filters.append(any);
-          dialog.set_filters(filters);
-          dialog.open(
-            self.get_root() as Gtk.Window,
-            null,
-            (d: Gtk.FileDialog, res: Gio.AsyncResult) => {
-              try {
-                const path = d.open_finish(res)?.get_path();
-                if (path) {
-                  setPicked(path);
-                  setProp(p.key, path);
-                }
-              } catch {
-                // dialog dismissed
+        const pick = () => {
+          execAsync([
+            "zenity",
+            "--file-selection",
+            "--title",
+            p.text || "Choose image",
+            "--file-filter=Images | *.png *.jpg *.jpeg *.webp *.gif *.bmp",
+            "--file-filter=All files | *",
+          ])
+            .then((out) => {
+              const path = out.trim();
+              if (path) {
+                setPicked(path);
+                setProp(p.key, path);
               }
-            },
-          );
+            })
+            .catch(() => {
+              // dialog dismissed
+            });
         };
         return (
           <box spacing={4} halign={Gtk.Align.START} hexpand={false}>
