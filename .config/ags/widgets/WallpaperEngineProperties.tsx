@@ -4,6 +4,7 @@ import { Gtk } from "ags/gtk4";
 import { timeout } from "ags/time";
 import GLib from "gi://GLib";
 import Gio from "gi://Gio";
+import Pango from "gi://Pango";
 import { notify } from "../utils/notification";
 import {
   kirieControl,
@@ -362,6 +363,65 @@ export function WallpaperEngineProperties({
             onChange={(we, debounce) => setProp(p.key, we, debounce)}
           />
         );
+      case "file": {
+        // Wallpaper Engine "file" properties hold an image path the
+        // wallpaper's script loads (custom image slots). A raw text entry is
+        // hostile for paths — use the GTK file dialog and show the picked
+        // file's name on the button.
+        const [picked, setPicked] = createState(String(p.value ?? ""));
+        const pick = (self: Gtk.Button) => {
+          const dialog = new Gtk.FileDialog({ title: p.text || "Choose image" });
+          const images = new Gtk.FileFilter();
+          images.set_name("Images");
+          images.add_mime_type("image/*");
+          const filters = new Gio.ListStore({ item_type: Gtk.FileFilter });
+          filters.append(images);
+          const any = new Gtk.FileFilter();
+          any.set_name("All files");
+          any.add_pattern("*");
+          filters.append(any);
+          dialog.set_filters(filters);
+          dialog.open(
+            self.get_root() as Gtk.Window,
+            null,
+            (d: Gtk.FileDialog, res: Gio.AsyncResult) => {
+              try {
+                const path = d.open_finish(res)?.get_path();
+                if (path) {
+                  setPicked(path);
+                  setProp(p.key, path);
+                }
+              } catch {
+                // dialog dismissed
+              }
+            },
+          );
+        };
+        return (
+          <box spacing={4} halign={Gtk.Align.START} hexpand={false}>
+            <button
+              onClicked={pick}
+              tooltipText={picked((v) => v || "No file selected")}
+            >
+              <label
+                maxWidthChars={18}
+                ellipsize={Pango.EllipsizeMode.START}
+                label={picked((v) => (v ? v.split("/").pop()! : "Choose file…"))}
+              />
+            </button>
+            <button
+              tooltipText="Clear"
+              visible={picked((v) => v !== "")}
+              onClicked={() => {
+                setPicked("");
+                setProp(p.key, "");
+              }}
+            >
+              <label label="✕" />
+            </button>
+          </box>
+        );
+      }
       default:
         // textinput and anything unknown -> plain text entry
         return (
