@@ -5,7 +5,7 @@ import { Astal } from "ags/gtk4";
 import Hyprland from "gi://AstalHyprland";
 import GObject from "ags/gobject";
 import Pango from "gi://Pango";
-import { createBinding, createState, createComputed, Accessor, For } from "ags";
+import { createBinding, createState, createComputed, Accessor, For, With } from "ags";
 import { execAsync, exec} from "ags/process";
 import { notify } from "../../../utils/notification";
 import { AGSSetting } from "../../../interfaces/settings.interface";
@@ -23,6 +23,7 @@ import { refreshCss } from "../../../utils/scss";
 import { timeout } from "ags/time";
 import { hyprThemeConfPath } from "../../../constants/path.constants";
 import { kirieControl } from "../../../services/kirie";
+import { debounce } from "../../../utils/debounce";
 const hyprland = Hyprland.get_default();
 
 const hyprCustomDir: string = "$HOME/.config/hypr/config/custom";
@@ -92,33 +93,28 @@ export const controlWEOrRestart = (args: string): Promise<void> =>
 // an Intel laptop, a single-GPU desktop and an AMD+NVIDIA box each need
 // different entries. value = the token kirie's `--gpu` understands.
 //
-// Detected SYNCHRONOUSLY at module load, not with execAsync: the setting row
-// takes its choices as a plain array read once when it renders, so an async
-// result lands after that and the dropdown would keep showing only the
-// fallback. GPUs do not change while the shell runs, so one cheap exec at
-// startup is the honest fix rather than making the row reactive.
-const weGpuChoices: { label: string; value: string }[] = (() => {
-  const fallback = [{ value: "auto", label: "Automatic (no pinning)" }];
-  try {
-    // kirie enumerates the adapters it would actually render with, so the
-    // names and integrated/discrete come from the render API rather than from
-    // guessing at ICD manifests and lspci output.
-    const out = exec([
-      "bash",
-      "-c",
-      `"$(command -v kirie || echo "$HOME/.local/bin/kirie")" gpus --json`,
-    ]);
+// Detected asynchronously (the old synchronous exec blocked AGS startup on a
+// Vulkan enumeration); the gpu row renders through <With> so it rebuilds when
+// the real list lands.
+const [weGpuChoices, setWeGpuChoices] = createState<
+  { label: string; value: string }[]
+>([{ value: "auto", label: "Automatic (no pinning)" }]);
+execAsync([
+  "bash",
+  "-c",
+  `"$(command -v kirie || echo "$HOME/.local/bin/kirie")" gpus --json`,
+])
+  .then((out) => {
     const rows = JSON.parse(out).map((g: { value: string; label: string }) => ({
       value: g.value,
       label: g.label,
     }));
-    return rows.length ? rows : fallback;
-  } catch {
+    if (rows.length) setWeGpuChoices(rows);
+  })
+  .catch(() => {
     // Pinning is an optimisation; a machine we cannot enumerate still renders
     // fine on the loader default.
-    return fallback;
-  }
-})();
+  });
 
 export const weScalingChoices = [
   { label: "Default", value: "default" },
@@ -552,6 +548,13 @@ export const Setting = ({
       />
     ) as Gtk.Label;
 
+    // The label tracks every motion event; the settings write + side-effect
+    // (socket command, restart…) fire once per drag, on the trailing edge.
+    const commit = debounce(300, (value: any) => {
+      setGlobalSetting(keyChanged + ".value", value);
+      if (callBack) callBack(value);
+    });
+
     const Slider = (
       <slider
         widthRequest={
@@ -581,8 +584,7 @@ export const Setting = ({
               break;
           }
 
-          setGlobalSetting(keyChanged + ".value", value);
-          if (callBack) callBack(value);
+          commit(value);
         }}
       />
     );
@@ -1092,12 +1094,16 @@ export default () => {
             spacing={16}
           >
             <label label="Wallpaper Engine" halign={Gtk.Align.START} />
-            <Setting
-              keyChanged="wallpaperEngine.gpu"
-              setting={globalSettings.peek().wallpaperEngine.gpu}
-              choices={weGpuChoices}
-              callBack={() => restartWE()}
-            />
+            <With value={weGpuChoices}>
+              {(choices) => (
+                <Setting
+                  keyChanged="wallpaperEngine.gpu"
+                  setting={globalSettings.peek().wallpaperEngine.gpu}
+                  choices={choices}
+                  callBack={() => restartWE()}
+                />
+              )}
+            </With>
             <Setting
               keyChanged="wallpaperEngine.scaling"
               setting={globalSettings.peek().wallpaperEngine.scaling}

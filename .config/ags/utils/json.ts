@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "ags/file";
 import { notify } from "./notification";
-import { exec } from "ags/process";
+import GLib from "gi://GLib";
+import Gio from "gi://Gio";
 
 export function readJSONFile<T = any>(
   filePath: string,
@@ -55,9 +56,17 @@ export function writeJSONFile(filePath: string, data: any) {
   const temporaryPath = `${filePath}.tmp`;
 
   try {
-    exec(`mkdir -p "${parentDir}"`);
+    // Fork-free (the old mkdir/mv pair spawned two blocking subprocesses on
+    // the GTK main loop for every settings write): native mkdir, write the
+    // temp file, atomic rename.
+    GLib.mkdir_with_parents(parentDir, 0o755);
     writeFile(temporaryPath, JSON.stringify(data, null, 4));
-    exec(`mv "${temporaryPath}" "${filePath}"`);
+    Gio.File.new_for_path(temporaryPath).move(
+      Gio.File.new_for_path(filePath),
+      Gio.FileCopyFlags.OVERWRITE,
+      null,
+      null,
+    );
   } catch (e) {
     notify({ summary: "Error", body: String(e) });
   }
