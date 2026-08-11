@@ -22,6 +22,7 @@ import { WidgetSelector } from "../../../interfaces/widgetSelector.interface";
 import { refreshCss } from "../../../utils/scss";
 import { timeout } from "ags/time";
 import { hyprThemeConfPath } from "../../../constants/path.constants";
+import { kirieControl } from "../../../services/kirie";
 const hyprland = Hyprland.get_default();
 
 const hyprCustomDir: string = "$HOME/.config/hypr/config/custom";
@@ -48,18 +49,16 @@ export const applyCurrentWallpapers = () => {
   ]).catch((err) => notify({ summary: "Error", body: String(err) }));
 };
 
-// Send a live command to running Wallpaper Engine processes (no restart). Used
-// for scaling/clamp/speed/property tweaks.
-// Send a live control command to the running engine(s). The ctl script exits
-// non-zero (and prints a reason) when no engine is reachable or it rejects the
-// command, so a dead/orphaned socket no longer fails silently — we surface it.
+// Send a live control command straight over the engine's control socket
+// (services/kirie.ts) — no bash/socat hop. Screen-scoped verbs fan out per
+// monitor inside kirieControl. A dead socket or a rejected command surfaces
+// as before.
 export const controlWE = (args: string): Promise<boolean> =>
-  execAsync([
-    "bash",
-    "-c",
-    `"$HOME/.config/hypr/wallpaper-daemon/wallpaperengine-ctl.sh" ${args}`,
-  ])
-    .then(() => true)
+  kirieControl(args)
+    .then((ok) => {
+      if (!ok) throw new Error("rejected");
+      return true;
+    })
     .catch(() => {
       notify({
         summary: "Wallpaper Engine",
@@ -81,12 +80,10 @@ export const restartWE = () =>
 // command isn't supported by that build), fall back to a full restart so the
 // change always takes effect — no manual switch-back-and-forth needed.
 export const controlWEOrRestart = (args: string): Promise<void> =>
-  execAsync([
-    "bash",
-    "-c",
-    `"$HOME/.config/hypr/wallpaper-daemon/wallpaperengine-ctl.sh" ${args}`,
-  ])
-    .then(() => undefined)
+  kirieControl(args)
+    .then((ok) => {
+      if (!ok) throw new Error("rejected");
+    })
     .catch(() => restartWE().then(() => undefined));
 
 // Wallpaper Engine option choices (shared with the wallpaper switcher)

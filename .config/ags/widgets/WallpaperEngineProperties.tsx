@@ -3,10 +3,45 @@ import { execAsync } from "ags/process";
 import { Gtk } from "ags/gtk4";
 import { timeout } from "ags/time";
 import GLib from "gi://GLib";
-import { readJson } from "../utils/json";
+import Gio from "gi://Gio";
 import { notify } from "../utils/notification";
+import {
+  kirieControl,
+  kirieProperties,
+  kirieWorkshopId,
+} from "../services/kirie";
 
 const DAEMON = `${GLib.get_home_dir()}/.config/hypr/wallpaper-daemon`;
+const OVERRIDES_DIR = `${DAEMON}/config/properties`;
+
+// Per-wallpaper override store (key=value per line), the file
+// wallpaperengine.sh stages into the engine at launch/bg. Written natively —
+// no shell round trip.
+function writeOverride(id: string, key: string, value: string) {
+  GLib.mkdir_with_parents(OVERRIDES_DIR, 0o755);
+  const path = `${OVERRIDES_DIR}/${id}.conf`;
+  let lines: string[] = [];
+  try {
+    const [ok, bytes] = GLib.file_get_contents(path);
+    if (ok)
+      lines = new TextDecoder()
+        .decode(bytes)
+        .split("\n")
+        .filter((l) => l.trim() !== "" && !l.startsWith(`${key}=`));
+  } catch {
+    // no file yet
+  }
+  lines.push(`${key}=${value}`);
+  GLib.file_set_contents(path, lines.join("\n") + "\n");
+}
+
+function clearOverrides(id: string) {
+  try {
+    Gio.File.new_for_path(`${OVERRIDES_DIR}/${id}.conf`).delete(null);
+  } catch {
+    // absent = already clear
+  }
+}
 
 interface WeProp {
   key: string;
@@ -204,19 +239,21 @@ export function WallpaperEngineProperties({
       // Persist the override, then push it over the control socket. The engine applies everything
       // live: plain values update uniforms in place, and visibility-gating properties (coloring
       // combos, xray) trigger a flash-free in-process rebuild. Reload only if the socket is gone.
-      execAsync(["bash", `${DAEMON}/wallpaperengine-properties.sh`, "--set", id, key, value])
-        .then(() =>
-          execAsync([
-            "bash",
-            `${DAEMON}/wallpaperengine-ctl.sh`,
-            "property",
-            key,
-            value,
-          ]).catch(() =>
-            execAsync(["bash", `${DAEMON}/apply-current.sh`, monitorName]),
+      try {
+        writeOverride(id, key, value);
+      } catch (err) {
+        notify({ summary: "Error", body: String(err) });
+        return;
+      }
+      kirieControl(`property ${key} ${value}`)
+        .then((ok) => {
+          if (!ok) throw new Error("engine rejected");
+        })
+        .catch(() =>
+          execAsync(["bash", `${DAEMON}/apply-current.sh`, monitorName]).catch(
+            (err) => notify({ summary: "Error", body: String(err) }),
           ),
-        )
-        .catch((err) => notify({ summary: "Error", body: String(err) }));
+        );
     };
     if (debounce) {
       timers.get(key)?.cancel?.();
@@ -228,20 +265,15 @@ export function WallpaperEngineProperties({
 
   const load = async () => {
     try {
-      const id = (
-        await execAsync(
-          `bash ${DAEMON}/wallpaperengine-properties.sh --current ${monitorName}`,
-        )
-      ).trim();
+      // One status round trip for the workshop id, one getproperties for the
+      // schema with live overrides folded in engine-side — no shell, no jq.
+      const id = await kirieWorkshopId(monitorName);
       setWeId(id);
       if (!id) {
         setProps([]);
         return;
       }
-      const out = await execAsync(
-        `bash ${DAEMON}/wallpaperengine-properties.sh --list ${id}`,
-      );
-      setProps((readJson(out) as WeProp[]) || []);
+      setProps(await kirieProperties(monitorName));
     } catch (e) {
       setProps([]);
     }
@@ -251,8 +283,13 @@ export function WallpaperEngineProperties({
     const id = weId.peek();
     if (!id) return;
     // Clearing overrides needs a reload to restore the wallpaper's defaults.
-    execAsync(`bash ${DAEMON}/wallpaperengine-properties.sh --reset ${id}`)
-      .then(() => execAsync(`bash ${DAEMON}/apply-current.sh ${monitorName}`))
+    try {
+      clearOverrides(id);
+    } catch (err) {
+      notify({ summary: "Error", body: String(err) });
+      return;
+    }
+    execAsync(`bash ${DAEMON}/apply-current.sh ${monitorName}`)
       .then(load)
       .catch((err) => notify({ summary: "Error", body: String(err) }));
   };
