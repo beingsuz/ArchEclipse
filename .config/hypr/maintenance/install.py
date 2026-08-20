@@ -63,10 +63,29 @@ def load_components(maintenance_dir: Path) -> dict[str, Any]:
         "defaults": importlib.import_module("components.defaults"),
         "sddm": importlib.import_module("components.sddm"),
         "wallpapers": importlib.import_module("components.wallpapers"),
+        "wallpaperengine": importlib.import_module("components.wallpaperengine"),
         "plugins": importlib.import_module("components.plugins"),
         "tweaks": importlib.import_module("components.tweaks"),
     }
     return components
+
+
+def parse_repo(argv: list[str]) -> str:
+    """
+    Repository precedence:
+    - `--repo <owner/name>`
+    - env `ARCHECLIPSE_REPO`
+    - default: `AymanLyesri/ArchEclipse`
+
+    Lets a fork be installed with the same one-liner, which is how work that
+    has not been merged yet (or a personal branch) gets tried out.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--repo", default=None)
+    args, _ = parser.parse_known_args(argv[1:])
+
+    repo = args.repo or os.environ.get("ARCHECLIPSE_REPO") or "AymanLyesri/ArchEclipse"
+    return str(repo)
 
 
 def parse_branch(argv: list[str]) -> str:
@@ -78,6 +97,7 @@ def parse_branch(argv: list[str]) -> str:
     - default: `master`
     """
     parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("--repo", default=None, help="owner/name to clone (default: AymanLyesri/ArchEclipse)")
     parser.add_argument(
         "-b",
         "--branch",
@@ -119,8 +139,9 @@ def main() -> None:
         shutil.rmtree(conf_dir)
 
     branch = parse_branch(sys.argv)
+    repo = parse_repo(sys.argv)
 
-    print("Cloning ArchEclipse repository (latest commit only)...")
+    print(f"Cloning {repo} (latest commit only)...")
     run_cmd(
         [
             "git",
@@ -130,7 +151,7 @@ def main() -> None:
             "--single-branch",
             "--branch",
             branch,
-            "https://github.com/AymanLyesri/ArchEclipse.git",
+            f"https://github.com/{repo}.git",
             str(conf_dir),
         ]
     )
@@ -193,6 +214,11 @@ def main() -> None:
             ),
             presentation.PlannedStep(
                 "wallpapers", "Setting up wallpapers", default_choice="y"
+            ),
+            presentation.PlannedStep(
+                "wallpaper_engine",
+                "Installing the Wallpaper Engine renderer (kirie)",
+                default_choice="y",
             ),
             presentation.PlannedStep(
                 "plugins", "Installing plugins", default_choice="y"
@@ -296,6 +322,12 @@ def main() -> None:
         "Setting up wallpapers",
         modules["wallpapers"].main,
         run=plan["wallpapers"],
+    )
+    presentation.execute_planned_step(
+        "*",
+        "Installing the Wallpaper Engine renderer (kirie)",
+        lambda: modules["wallpaperengine"].install_engine(conf_dir),
+        run=plan["wallpaper_engine"],
     )
 
     presentation.print_section_header("PLUGINS & TWEAKS")

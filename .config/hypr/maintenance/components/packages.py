@@ -32,6 +32,7 @@ PACKAGES: list[str] = [
 
     # Development tools
     "socat",
+    "ffmpeg",
     "btop",
     "dart-sass",
     "sassc",

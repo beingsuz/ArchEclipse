@@ -28,8 +28,16 @@ bin="$(command -v kirie 2>/dev/null)"
 [ -x "$bin" ] || bin="$HOME/.local/bin/kirie"
 [ -x "$bin" ] || bin="$HOME/kirie/target/release/kirie"
 [ -x "$bin" ] || bin="$HOME/linux-wallpaperengine/build/output/linux-wallpaperengine"
-[ -x "$bin" ] || bin="$(command -v linux-wallpaperengine)" || {
-    notify-send -u critical "Wallpaper Engine" "no wallpaper engine (kirie / linux-wallpaperengine) installed" 2>/dev/null; exit 1; }
+[ -x "$bin" ] || bin="$(command -v linux-wallpaperengine)"
+# First Workshop wallpaper on a machine that predates the engine, or one whose
+# install was skipped: fetch it now rather than refusing to render.
+if [ ! -x "$bin" ] && [ -x "$daemon/kirie-install.sh" ]; then
+    notify-send "Wallpaper Engine" "Installing the wallpaper renderer…" 2>/dev/null
+    "$daemon/kirie-install.sh" >/dev/null 2>&1
+    bin="$HOME/.local/bin/kirie"
+fi
+[ -x "$bin" ] || {
+    notify-send -u critical "Wallpaper Engine" "no wallpaper engine installed — run ~/.config/hypr/wallpaper-daemon/kirie-install.sh" 2>/dev/null; exit 1; }
 
 we()   { jq -r "($1) // empty" "$settings" 2>/dev/null; }
 send() { printf '%s\n' "$*" | socat - "UNIX-CONNECT:$sock" 2>/dev/null; }
