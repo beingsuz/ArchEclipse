@@ -69,14 +69,45 @@ function addUserToInputGroup() {
     .catch((err) => notify({ summary: "Error", body: err.toString() }));
 }
 
-// File Manager options with display names and commands
+// File Manager options with display names, commands and desktop entries
+// (the desktop entry is registered as the system-wide directory handler)
 const fileManagerOptions = [
-  { id: "nautilus", name: "Nautilus (GNOME)", command: "nautilus" },
-  { id: "thunar", name: "Thunar (XFCE)", command: "thunar" },
-  { id: "dolphin", name: "Dolphin (KDE)", command: "dolphin" },
-  { id: "nemo", name: "Nemo (Cinnamon)", command: "nemo" },
-  { id: "pcmanfm", name: "PCManFM", command: "pcmanfm" },
-  { id: "ranger", name: "Ranger (Terminal)", command: "kitty ranger" },
+  {
+    id: "nautilus",
+    name: "Nautilus (GNOME)",
+    command: "nautilus",
+    desktop: "org.gnome.Nautilus.desktop",
+  },
+  {
+    id: "thunar",
+    name: "Thunar (XFCE)",
+    command: "thunar",
+    desktop: "thunar.desktop",
+  },
+  {
+    id: "dolphin",
+    name: "Dolphin (KDE)",
+    command: "dolphin",
+    desktop: "org.kde.dolphin.desktop",
+  },
+  {
+    id: "nemo",
+    name: "Nemo (Cinnamon)",
+    command: "nemo",
+    desktop: "nemo.desktop",
+  },
+  {
+    id: "pcmanfm",
+    name: "PCManFM",
+    command: "pcmanfm",
+    desktop: "pcmanfm.desktop",
+  },
+  {
+    id: "ranger",
+    name: "Ranger (Terminal)",
+    command: "kitty ranger",
+    desktop: "ranger.desktop",
+  },
 ];
 
 // Detect installed file managers
@@ -142,6 +173,15 @@ const FileManagerSelector = () => {
               onToggled={({ active }) => {
                 if (active) {
                   setGlobalSetting("fileManager", fm.id);
+                  // make it the system-wide default for opening directories
+                  execAsync([
+                    "xdg-mime",
+                    "default",
+                    fm.desktop,
+                    "inode/directory",
+                  ]).catch((err) =>
+                    notify({ summary: "Error", body: err.toString() }),
+                  );
                   notify({
                     summary: "File Manager",
                     body: `Changed to ${fm.name}`,
