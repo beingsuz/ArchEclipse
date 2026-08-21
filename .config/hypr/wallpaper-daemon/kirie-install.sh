@@ -58,7 +58,14 @@ fetch() { # fetch <asset> <target>
 }
 
 fetch "$main_asset" "$tmp/kirie"
-[ -n "$host_asset" ] && fetch "$host_asset" "$tmp/kirie-webviewhost"
+# Engines from kirie 0.3 on carry the webkit host inside them and publish no
+# separate asset; older releases need the helper beside the engine. Fetch it
+# when the release still has one, and do not fail when it does not.
+if [ -n "$host_asset" ]; then
+    log "downloading $host_asset (older releases only)"
+    curl -fL --retry 2 --retry-delay 2 -s -o "$tmp/kirie-webviewhost" "$base/$host_asset" ||
+        rm -f "$tmp/kirie-webviewhost"
+fi
 chmod +x "$tmp"/kirie*
 
 # A truncated or rate-limited download still writes a file, so make the binary
@@ -67,7 +74,13 @@ chmod +x "$tmp"/kirie*
 
 mkdir -p "$dest"
 install -m 755 "$tmp/kirie" "$dest/kirie"
-[ -n "$host_asset" ] && install -m 755 "$tmp/kirie-webviewhost" "$dest/kirie-webviewhost"
+if [ -s "$tmp/kirie-webviewhost" ]; then
+    install -m 755 "$tmp/kirie-webviewhost" "$dest/kirie-webviewhost"
+else
+    # A helper left by an older install would shadow nothing (the engine hosts
+    # itself), but keeping a stale one invites confusion.
+    rm -f "$dest/kirie-webviewhost"
+fi
 
 log "installed $(kirie_version "$dest/kirie") to $dest"
 
