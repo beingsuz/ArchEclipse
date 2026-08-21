@@ -4,6 +4,7 @@ set -euo pipefail
 
 readonly HYPR_DIR="${HOME}/.config/hypr"
 readonly THEME_SCRIPT="${HYPR_DIR}/theme/scripts/system-theme.sh"
+readonly LIBADWAITA_SCRIPT="${HYPR_DIR}/theme/scripts/libadwaita-theme.py"
 
 # Get current theme from system
 current_theme="$("${THEME_SCRIPT}" get)"
@@ -18,3 +19,6 @@ else
     echo "Error: Failed to set GTK theme" >&2
     exit 1
 fi
+
+# libadwaita apps (Nautilus, ...) ignore gsettings, mirror the theme for them
+"${LIBADWAITA_SCRIPT}" "${theme_name}" || echo "Warning: failed to apply libadwaita theme" >&2
