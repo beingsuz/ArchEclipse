@@ -77,10 +77,12 @@ case ":$PATH:" in
 esac
 
 # Wallpaper Engine's own asset library is what scene wallpapers load their
-# shaders and shared textures from; without it they render blank.
-if ! find "$HOME/.local/share/Steam/steamapps/common/wallpaper_engine/assets" \
-    -maxdepth 0 -type d >/dev/null 2>&1; then
-    log "note: Wallpaper Engine (Steam) is not installed here — Workshop wallpapers need its assets to render"
+# shaders and shared textures from; without it they render blank. Ask the
+# engine rather than guessing a path: it searches every Steam library,
+# including ones on other disks.
+if ! "$dest/kirie" check 2>/dev/null | grep -q "^\[ ok \] WE base assets:"; then
+    log "note: Wallpaper Engine's assets were not found — install it in Steam, or set KIRIE_WE_ASSETS"
+    log "      (run '$dest/kirie check' for the full prerequisite list)"
 fi
 
 exit 0

@@ -49,6 +49,20 @@ export function isWallpaperEngine(file: string) {
   return file.includes("/workshop/content/431960/");
 }
 
+// The Workshop id of a Wallpaper Engine item, from its content path.
+export function workshopId(file: string) {
+  return file.match(/\/workshop\/content\/431960\/([^/]+)\//)?.[1];
+}
+
+// The item's page on the Steam Workshop — where it is unsubscribed, since
+// deleting the folder only makes Steam download it again.
+export function workshopUrl(file: string) {
+  const id = workshopId(file);
+  return id
+    ? `https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`
+    : undefined;
+}
+
 // Human-friendly label for category keys (folder names) shown in the selector.
 export function prettyCategory(category: string) {
   if (category === WALLPAPER_ENGINE_CATEGORY) return "Wallpaper Engine";
@@ -249,12 +263,30 @@ export default ({
 
                 const handleRightClick = () => {
                   // Never delete Wallpaper Engine items from disk (they belong to
-                  // Steam); manage those through the Steam Workshop instead.
+                  // Steam, which just downloads them again); hand over the
+                  // Workshop link so the item can be unsubscribed there.
                   if (isWallpaperEngine(wallpaper)) {
-                    notify({
-                      summary: "Wallpaper Engine",
-                      body: "Unsubscribe from this item in Steam to remove it.",
-                    });
+                    const url = workshopUrl(wallpaper);
+                    if (!url) {
+                      notify({
+                        summary: "Wallpaper Engine",
+                        body: "Unsubscribe from this item in Steam to remove it.",
+                      });
+                      return;
+                    }
+                    execAsync(["wl-copy", url])
+                      .then(() =>
+                        notify({
+                          summary: "Wallpaper Engine",
+                          body: `Workshop link copied — open it and unsubscribe to remove this wallpaper.\n${url}`,
+                        }),
+                      )
+                      .catch(() =>
+                        notify({
+                          summary: "Wallpaper Engine",
+                          body: `Unsubscribe in Steam to remove this wallpaper.\n${url}`,
+                        }),
+                      );
                     return;
                   }
                   setProgressStatus("loading");
@@ -322,7 +354,10 @@ export default ({
                       (type) =>
                         "Click to set as <b>" +
                         type +
-                        "</b> wallpaper.\nRight-click to delete." +
+                        "</b> wallpaper.\n" +
+                        (isWallpaperEngine(wallpaper)
+                          ? "Right-click to copy its Workshop link (unsubscribe there to remove it)."
+                          : "Right-click to delete.") +
                         // get filename from path
                         `\n ${wallpaper.split("/").pop()}` +
                         // file size
