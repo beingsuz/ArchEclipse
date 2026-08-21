@@ -43,6 +43,7 @@ def load_components(maintenance_dir: Path) -> dict[str, Any]:
         "essentials": importlib.import_module("components.essentials"),
         "presentation": importlib.import_module("components.presentation"),
         "packages": importlib.import_module("components.packages"),
+        "defaults": importlib.import_module("components.defaults"),
         "plugins": importlib.import_module("components.plugins"),
     }
 
@@ -209,6 +210,9 @@ def main() -> None:
                 "packages", package_description, default_choice="y"
             ),
             presentation.PlannedStep(
+                "file_manager", "Applying file manager defaults", default_choice="y"
+            ),
+            presentation.PlannedStep(
                 "plugins", "Updating plugins", default_choice="y"
             ),
         ],
@@ -270,6 +274,14 @@ def main() -> None:
             lambda: modules["packages"].install_packages(aur_helper),
             run=False,
         )
+
+    presentation.print_section_header("FILE MANAGER")
+    presentation.execute_planned_step(
+        "*",
+        "Applying file manager defaults",
+        modules["defaults"].apply_file_manager_defaults,
+        run=plan["file_manager"],
+    )
 
     presentation.print_section_header("PLUGINS")
     presentation.execute_planned_step(

@@ -74,6 +74,12 @@ PACKAGES: list[str] = [
     "mpvpaper",
     "zenity",
 
+    # File manager
+    "nautilus",
+    "sushi",
+    "nautilus-open-any-terminal",
+    "xdg-desktop-portal-gtk",
+
     # Themes and UI enhancements
     "sddm",
     "where-is-my-sddm-theme-git",
