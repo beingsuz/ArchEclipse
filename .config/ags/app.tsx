@@ -18,7 +18,11 @@ import WallpaperSwitcher from "./widgets/WallpaperSwitcher";
 import AppLauncher from "./widgets/applauncher/AppLauncher";
 import UserPanel from "./widgets/UserPanel";
 import NotificationPopups from "./widgets/NotificationPopups";
-import { createBinding, For, onCleanup, This } from "ags";
+import { createState, For, onCleanup, This } from "ags";
+import { timeout } from "ags/time";
+import { execAsync } from "ags/process";
+import Gdk from "gi://Gdk";
+import { getMonitorName } from "./utils/monitor";
 import Notifd from "gi://AstalNotifd";
 import KeyStrokeVisualizer from "./widgets/KeyStrokeVisualizer";
 import { leftPanelWidgetSelectors } from "./constants/widget.constants";
@@ -32,11 +36,114 @@ import { setSearchQuery } from "./widgets/bar/barStates/SearchBar";
 const Notification = Notifd.get_default();
 
 const perMonitorDisplay = () => {
-  const monitors = createBinding(app, "monitors");
+  // Monitors are only rendered once they can be named. Gdk announces a
+  // monitor before resolving its connector when a screen is turned back on,
+  // and widgets bake that name in at construction, so building too early
+  // leaves every window called "<widget>-undefined" — the panel keybinds
+  // then resolve nothing until the shell restarts. Re-check when the
+  // connector arrives, and give up waiting after a moment so an output we
+  // cannot name still gets its bar.
+  const [monitors, setMonitors] = createState<Gdk.Monitor[]>([]);
+  const watched = new Set<Gdk.Monitor>();
+  const unnamed = new Set<Gdk.Monitor>();
+
+  // Retired windows can never be released: GTK 4.22 segfaults on destroying a
+  // layer-shell window whose output is gone (immediately, deferred, detached
+  // or emptied first — all crash), and a per-monitor set holds ~200 MB. So the
+  // shell recycles itself instead, which is both crash-free and leak-free.
+  //
+  // The timer is pushed back on every monitor change rather than firing a
+  // fixed delay after the first removal. Turning a screen off and back on
+  // emits a removal and then an addition seconds later; a fixed timer fired in
+  // the middle of that, so the replacement shell booted while the outputs were
+  // still moving, watched the rest of the storm and recycled itself again —
+  // one screen toggle, two restarts, with the second shell building windows
+  // against a monitor Gdk could not name yet. Waiting for quiet collapses the
+  // whole storm into a single restart.
+  const RECYCLE_SETTLE_MS = 8000;
+  let recycleTimer: ReturnType<typeof timeout> | null = null;
+  let recycleWanted = false;
+
+  const scheduleRecycle = () => {
+    if (!recycleWanted) return;
+    recycleTimer?.cancel();
+    recycleTimer = timeout(RECYCLE_SETTLE_MS, () => {
+      recycleTimer = null;
+      recycleWanted = false;
+      // Logged, not discarded: when the restart fails the desktop is left
+      // with no bar at all, and a silent failure gives nothing to debug.
+      execAsync([
+        "bash",
+        "-c",
+        `setsid nohup "$HOME/.config/hypr/scripts/bar.sh" >>"/tmp/ags-$USER/recycle.log" 2>&1 &`,
+      ]).catch(() => {});
+    });
+  };
+
+  const recycleShell = () => {
+    recycleWanted = true;
+    scheduleRecycle();
+  };
+
+  const refreshMonitors = () => {
+    const present = app.get_monitors();
+
+    for (const monitor of present) {
+      if (watched.has(monitor)) continue;
+      watched.add(monitor);
+      monitor.connect("notify::connector", refreshMonitors);
+      timeout(2000, () => {
+        if (watched.has(monitor) && !getMonitorName(monitor)) {
+          unnamed.add(monitor);
+          refreshMonitors();
+        }
+      });
+    }
+
+    for (const monitor of [...watched]) {
+      if (!present.includes(monitor)) {
+        watched.delete(monitor);
+        unnamed.delete(monitor);
+      }
+    }
+
+    setMonitors(
+      present.filter((m) => !!getMonitorName(m) || unnamed.has(m)),
+    );
+
+    // A monitor arriving belongs to the same storm as the removal that queued
+    // the recycle, so it postpones the restart as well.
+    scheduleRecycle();
+  };
+
+  app.connect("notify::monitors", refreshMonitors);
+  refreshMonitors();
+  // Windows belonging to a monitor that just went away. They are retired
+  // rather than destroyed: destroying a layer-shell window whose output is
+  // gone segfaults GTK 4.22 inside the application's window-removed handler
+  // (deferring or detaching the window first does not help). Renaming frees
+  // the name so the copy built when the monitor returns owns it, which is
+  // what `ags toggle <window>-<monitor>` looks up.
+  const retire = (win: any) => {
+    win.hide();
+    if (!win.name?.startsWith("zombie-")) {
+      win.name = `zombie-${win.name}-${Date.now()}`;
+    }
+  };
+
+  const retireWindows = (connector: string) => {
+    for (const win of app.get_windows() as any[]) {
+      const name: string | null = win.name;
+      if (!name || name.startsWith("zombie-")) continue;
+      if (name !== connector && !name.endsWith(`-${connector}`)) continue;
+      retire(win);
+    }
+  };
+
   const createWidget = (Widget: any, monitor: any) => () => (
     <Widget
       monitor={monitor}
-      setup={(self: any) => onCleanup(() => self.destroy())}
+      setup={(self: any) => onCleanup(() => retire(self))}
     />
   );
   const widgets = [
@@ -58,7 +165,13 @@ const perMonitorDisplay = () => {
       {(monitor) => (
         <This this={app}>
           {(() => {
-            const connector = monitor.get_connector()! as unknown as string;
+            const connector = getMonitorName(monitor) as string;
+            // Widgets that register windows themselves (rather than through
+            // the factory below) are retired by this sweep.
+            onCleanup(() => {
+              retireWindows(connector);
+              recycleShell();
+            });
             return widgets.map((Widget) =>
               logTimeWidget(connector, createWidget(Widget, monitor)),
             );
@@ -106,7 +219,7 @@ app.start({
       }
     };
 
-    if (cmd == "delete-notification") {
+                if (cmd == "delete-notification") {
       const id = parseInt(arg);
       const notification = Notification.notifications.find((n) => n.id === id);
       if (notification) {

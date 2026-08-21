@@ -713,7 +713,11 @@ int main() {
     while (fgets(buffer, sizeof(buffer), sock_file)) {
         buffer[strcspn(buffer, "\n")] = 0;
         
-        if (strstr(buffer, "workspace>>") || strstr(buffer, "focusedmon>>")) {
+        /* monitoradded matters as much as the others: a screen that was
+         * turned off has no wallpaper process left, and without reacting here
+         * it stays blank until the next workspace switch happens to fire. */
+        if (strstr(buffer, "workspace>>") || strstr(buffer, "focusedmon>>") ||
+            strstr(buffer, "monitoradded>>")) {
             printf("Workspace/Monitor change detected, updating wallpaper...\n");
             change_wallpaper();
         }

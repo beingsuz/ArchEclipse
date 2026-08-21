@@ -174,6 +174,16 @@ while IFS= read -r m; do
     [ -f "$mdir/project.json" ] || continue
     args+=(--screen-root "$m" --bg "$mdir")
 done < <(hyprctl monitors -j 2>/dev/null | jq -r '.[].name' 2>/dev/null)
+
+# No outputs to render on — every screen is off, or hyprctl is unreachable and
+# the loop above saw nothing. Launching anyway builds a command line with no
+# --bg, which the engine rejects ("At least one background ID must be
+# specified"); the supervisor then relaunches it every 15 s forever, spamming
+# crash notifications. The daemon re-applies when a monitor comes back.
+if [ ${#args[@]} -lt 3 ]; then
+    echo "wallpaperengine.sh: no outputs to render on; not starting the engine" >&2
+    exit 0
+fi
 sc="$(we .wallpaperEngine.scaling.value)";  [ -n "$sc" ] && args+=(--scaling "$sc")
 cl="$(we .wallpaperEngine.clamping.value)"; [ -n "$cl" ] && args+=(--clamp "$cl")
 fp="$(we .wallpaperEngine.fps.value)";      [ -n "$fp" ] && args+=(--fps "$fp")
