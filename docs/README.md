@@ -51,6 +51,7 @@ archeclipse
 
 ```
 SUPER + Return    = Open terminal
+SUPER + E         = Open file manager
 SUPER + Q         = Close window
 SUPER + F         = Fullscreen
 SUPER + 1-9       = Switch workspace

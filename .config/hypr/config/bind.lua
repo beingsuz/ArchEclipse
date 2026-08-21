@@ -42,6 +42,8 @@ hl.bind(mainMod .. " + Return", hl.dsp.exec_cmd(terminal))
 hl.bind(mainMod .. " + CTRL + Return", hl.dsp.exec_cmd("[float] " .. terminal))
 --- open btop in workspace 5
 hl.bind(mainMod .. " + P", hl.dsp.exec_cmd("[workspace 5] " .. terminal .. " btop"))
+--- open file manager (default directory handler, picked in AGS settings)
+hl.bind(mainMod .. " + E", hl.dsp.exec_cmd("xdg-open " .. home))
 
 -- Status Bar and Panels
 --- restart status bar

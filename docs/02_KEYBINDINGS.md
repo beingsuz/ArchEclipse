@@ -104,6 +104,7 @@ Move window to special:   SUPER + CTRL + S
 | Terminal              | `SUPER` + `Return`          | Kitty terminal                |
 | Floating terminal     | `SUPER` + `CTRL` + `Return` | Floating terminal window      |
 | App launcher          | `SUPER`                     | Application search/launcher   |
+| File manager          | `SUPER` + `E`               | Nautilus (or the one picked in settings) |
 | btop (system monitor) | `SUPER` + `P`               | System monitor in workspace 5 |
 
 ## Media Controls
@@ -341,6 +342,7 @@ Save this quick reference:
 
 ```
 SUPER + Return = Terminal
+SUPER + E = File manager
 SUPER + Q = Close
 SUPER + F = Fullscreen
 SUPER + Space = Float
