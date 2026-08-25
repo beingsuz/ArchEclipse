@@ -325,6 +325,17 @@ export const defaultSettings: Settings = {
   wallpaperSwitcher: {
     category: "defaults/sfw",
   },
+  wallpaper: {
+    mode: {
+      name: "Wallpaper Mode",
+      value: "workspace",
+      type: "select",
+      min: 0,
+      max: 0,
+      tooltip:
+        "Per Workspace: every workspace keeps its own wallpaper.\nGlobal: one wallpaper for all of them.",
+    },
+  },
   apiKeys: {
     openrouter: {
       user: {
