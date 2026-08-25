@@ -1,12 +1,70 @@
 #!/bin/bash
 
 hyprDir="$HOME/.config/hypr"
-workspace_id="$1"
+configDir="$hyprDir/wallpaper-daemon/config"
+
+monitor_config() { printf '%s/%s/defaults.conf' "$configDir" "$1"; }
+
+wallpaper_mode() {
+    local mode
+    mode="$(grep '^mode=' "$(monitor_config "$1")" 2>/dev/null | cut -d'=' -f2- | head -n 1)"
+    [ "$mode" = "global" ] && echo global || echo workspace
+}
+
+apply_wallpaper() {
+    local monitor="$1" wallpaper="$2" ext
+    ext="$(printf '%s' "${wallpaper##*.}" | tr '[:upper:]' '[:lower:]')"
+    if [ "$ext" = "gif" ] || [ "$ext" = "mp4" ] || [ "$ext" = "webm" ]; then
+        "$hyprDir/wallpaper-daemon/mpvpaper.sh" "$monitor" "$wallpaper" &
+    else
+        "$hyprDir/wallpaper-daemon/hyprpaper.sh" "$monitor" "$wallpaper" &
+    fi
+}
+
+write_entry() {
+    local config="$1" key="$2" value="$3"
+    grep -q "^${key}=" "$config" || echo "${key}=" >>"$config"
+    sed -i "s|^${key}=.*|${key}=${value}|" "$config"
+}
+
+read_entry() {
+    grep "^${2}=" "$1" 2>/dev/null | cut -d'=' -f2- | head -n 1
+}
+
+if [ "$1" = "--mode" ]; then
+    mode="$2"
+    if [ "$mode" != "workspace" ] && [ "$mode" != "global" ]; then
+        echo "Usage: set-wallpaper.sh --mode <workspace|global> [monitor]" >&2
+        exit 1
+    fi
+
+    monitors="$3"
+    [ -n "$monitors" ] || monitors="$(hyprctl monitors -j | jq -r '.[].name')"
+
+    for name in $monitors; do
+        config="$(monitor_config "$name")"
+        [ -f "$config" ] || continue
+        write_entry "$config" mode "$mode"
+
+        if [ "$mode" = "global" ]; then
+            wallpaper="$(read_entry "$config" global)"
+        else
+            workspace="$(hyprctl monitors -j |
+                jq -r --arg m "$name" '.[] | select(.name == $m) | .activeWorkspace.id')"
+            wallpaper="$(read_entry "$config" "w-${workspace}")"
+        fi
+
+        [ -n "$wallpaper" ] && apply_wallpaper "$name" "$wallpaper"
+    done
+    exit 0
+fi
+
+target="$1"
 monitor="$2"
 wallpaper="$3"
 
-if [ -z "$workspace_id" ] || [ -z "$monitor" ]; then
-    echo "Usage: set-wallpaper.sh <workspace_id> <monitor> [wallpaper]"
+if [ -z "$target" ] || [ -z "$monitor" ]; then
+    echo "Usage: set-wallpaper.sh <workspace_id|global> <monitor> [wallpaper]"
     exit 1
 fi
 
@@ -18,33 +76,31 @@ if [ -z "$wallpaper" ]; then
     fi
 fi
 
-current_config="$hyprDir/wallpaper-daemon/config/$monitor/defaults.conf"
+current_config="$(monitor_config "$monitor")"
 if [ ! -f "$current_config" ]; then
     echo "Config not found for monitor '$monitor': $current_config"
     exit 1
 fi
 
-current_workspace="$(hyprctl monitors -j | jq -r --arg monitor "$monitor" '.[] | select(.name == $monitor) | .activeWorkspace.id')"
-
-if ! grep -q "^w-${workspace_id}=" "$current_config"; then
-    echo "w-${workspace_id}=" >> "$current_config"
+if [ "$target" = "global" ]; then
+    key="global"
+    [ "$(wallpaper_mode "$monitor")" = "global" ] && on_screen=1 || on_screen=0
+else
+    key="w-${target}"
+    current_workspace="$(hyprctl monitors -j |
+        jq -r --arg monitor "$monitor" '.[] | select(.name == $monitor) | .activeWorkspace.id')"
+    [ "$target" = "$current_workspace" ] &&
+        [ "$(wallpaper_mode "$monitor")" = "workspace" ] && on_screen=1 || on_screen=0
 fi
 
-old_wallpaper="$(grep "^w-${workspace_id}=" "$current_config" | cut -d'=' -f2- | head -n 1)"
+old_wallpaper="$(read_entry "$current_config" "$key")"
 if [ "$old_wallpaper" = "$wallpaper" ]; then
     echo "Wallpaper is already set to $wallpaper"
     exit 0
 fi
 
-if [ "$workspace_id" = "$current_workspace" ]; then
-    wallpaper_ext="${wallpaper##*.}"
-    wallpaper_ext="$(printf '%s' "$wallpaper_ext" | tr '[:upper:]' '[:lower:]')"
-    
-    if [ "$wallpaper_ext" = "gif" ] || [ "$wallpaper_ext" = "mp4" ] || [ "$wallpaper_ext" = "webm" ]; then
-        "$hyprDir/wallpaper-daemon/mpvpaper.sh" "$monitor" "$wallpaper" &
-    else
-        "$hyprDir/wallpaper-daemon/hyprpaper.sh" "$monitor" "$wallpaper" &
-    fi
+if [ "$on_screen" = 1 ]; then
+    apply_wallpaper "$monitor" "$wallpaper"
 fi
 
-sed -i "s|^w-${workspace_id}=.*|w-${workspace_id}=${wallpaper}|" "$current_config"
+write_entry "$current_config" "$key" "$wallpaper"
